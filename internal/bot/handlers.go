@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"strings"
+	"time"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/features"
 	tele "gopkg.in/telebot.v4"
@@ -99,6 +100,20 @@ func (b *Bot) handleRandomize(c tele.Context) error {
 	return c.Send("Окей, кидай вопрос. Я решу за тебя.", menu)
 }
 
+func (b *Bot) handlePrediction(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] prediction", userID)
+
+	replyFn, stop := b.startThinking(c)
+	prediction, err := b.claude.Ask(context.Background(), features.PredictionPrompt, "Предскажи")
+	if err != nil {
+		stop()
+		log.Printf("[%d] prediction error: %v", userID, err)
+		return c.Send("🔮 "+features.RandomFallback(), menu)
+	}
+	return replyFn("🔮 "+prediction, menu)
+}
+
 func (b *Bot) handleText(c tele.Context) error {
 	text := c.Text()
 	userID := c.Sender().ID
@@ -128,6 +143,27 @@ func (b *Bot) handleText(c tele.Context) error {
 		return c.Send(reply, menu)
 	}
 
+	// Offended reply if user was silent for >24h
+	lastTime, err := b.store.LastMessageTime(userID)
+	if err == nil && !lastTime.IsZero() && time.Since(lastTime) > 24*time.Hour {
+		offended := features.OffendedReplies[rand.Intn(len(features.OffendedReplies))]
+		if _, err := b.store.SaveMessage(userID, "bot", offended); err != nil {
+			log.Printf("[%d] save offended error: %v", userID, err)
+		}
+		if err := c.Send(offended, menu); err != nil {
+			log.Printf("[%d] offended send error: %v", userID, err)
+		}
+	}
+
+	// Bargain: 20% chance bot demands something before answering
+	if rand.Intn(5) == 0 {
+		bargain := features.Bargains[rand.Intn(len(features.Bargains))]
+		if err := c.Send(bargain, menu); err != nil {
+			log.Printf("[%d] bargain send error: %v", userID, err)
+		}
+		time.Sleep(2 * time.Second)
+	}
+
 	// Build context
 	userCtx := b.buildUserContext(userID)
 
@@ -135,7 +171,6 @@ func (b *Bot) handleText(c tele.Context) error {
 	replyFn, stop := b.startThinking(c)
 
 	var reply string
-	var err error
 
 	if len(text) > 0 && text[len(text)-1] == '?' {
 		reply, err = features.Decide(context.Background(), b.claude, text, userCtx)

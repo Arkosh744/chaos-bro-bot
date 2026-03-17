@@ -126,6 +126,18 @@ func (s *Storage) MessageCountSince(userID, sinceID int64) (int, error) {
 	return count, err
 }
 
+func (s *Storage) LastMessageTime(userID int64) (time.Time, error) {
+	var t time.Time
+	err := s.db.QueryRow(
+		"SELECT created_at FROM messages WHERE user_id = ? AND role = 'user' ORDER BY id DESC LIMIT 1",
+		userID,
+	).Scan(&t)
+	if err == sql.ErrNoRows {
+		return time.Time{}, nil
+	}
+	return t, err
+}
+
 func (s *Storage) GetMessagesSince(userID, sinceID int64, limit int) ([]Message, error) {
 	rows, err := s.db.Query(
 		"SELECT id, user_id, role, text, created_at FROM messages WHERE user_id = ? AND id > ? ORDER BY id ASC LIMIT ?",
