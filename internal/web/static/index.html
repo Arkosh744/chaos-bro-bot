@@ -1268,11 +1268,11 @@
             const el = document.getElementById('current-user-info');
             const user = allUsers.find(u => u.user_id === currentUserID);
             if (user) {
-                el.innerHTML = 'User <strong>' + user.user_id + '</strong> | ' + user.message_count + ' сообщ.';
+                el.innerHTML = '<strong>' + escapeHtml(user.display_name) + '</strong> | ' + user.message_count + ' сообщ.';
             } else if (!currentUserID && allUsers.length > 0) {
                 const owner = allUsers.find(u => u.is_owner);
                 if (owner) {
-                    el.innerHTML = 'Owner <strong>' + owner.user_id + '</strong> | ' + owner.message_count + ' сообщ.';
+                    el.innerHTML = '<strong>' + escapeHtml(owner.display_name) + '</strong> | ' + owner.message_count + ' сообщ.';
                 } else {
                     el.innerHTML = '';
                 }
@@ -1291,7 +1291,8 @@
                 const isActive = u.user_id === currentUserID || (!currentUserID && u.is_owner);
                 return '<div class="user-dropdown-item ' + (isActive ? 'active' : '') + '" onclick="selectUser(' + u.user_id + ')">' +
                     '<div>' +
-                        '<div class="user-dd-id">' + u.user_id + '</div>' +
+                        '<div class="user-dd-id">' + escapeHtml(u.display_name) + '</div>' +
+                        (u.username ? '<div style="font-size:0.7rem;color:var(--text-dim);">@' + escapeHtml(u.username) + '</div>' : '') +
                         (u.is_owner ? '<div class="user-dd-owner">owner</div>' : '') +
                     '</div>' +
                     '<div class="user-dd-meta">' + u.message_count + ' сообщ.<br>' + (u.last_message || '-') + '</div>' +
@@ -1481,7 +1482,8 @@
                 container.innerHTML = users.map(u =>
                     '<div class="card user-card ' + (u.is_owner ? 'is-owner' : '') + '">' +
                         '<div class="user-card-header">' +
-                            '<span class="user-card-id">' + u.user_id + '</span>' +
+                            '<span class="user-card-id">' + escapeHtml(u.display_name) + '</span>' +
+                            (u.username ? '<span style="font-size:0.75rem;color:var(--text-dim);margin-left:8px;">@' + escapeHtml(u.username) + '</span>' : '') +
                             (u.is_owner ? '<span class="user-card-badge">owner</span>' : '') +
                         '</div>' +
                         '<div class="user-card-stats">' +

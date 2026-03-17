@@ -89,6 +89,13 @@ func (s *Storage) migrate() error {
 			created_date TEXT NOT NULL,
 			PRIMARY KEY (user_id, created_date)
 		);
+		CREATE TABLE IF NOT EXISTS user_profiles (
+			user_id INTEGER PRIMARY KEY,
+			username TEXT NOT NULL DEFAULT '',
+			first_name TEXT NOT NULL DEFAULT '',
+			last_name TEXT NOT NULL DEFAULT '',
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
 	`)
 	return err
 }
@@ -454,9 +461,29 @@ func (s *Storage) DeleteFact(userID int64, category string) error {
 	return err
 }
 
+// --- User Profiles (Telegram info) ---
+
+// UpsertUserProfile saves or updates user's Telegram profile info.
+func (s *Storage) UpsertUserProfile(userID int64, username, firstName, lastName string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO user_profiles (user_id, username, first_name, last_name, updated_at)
+		VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(user_id) DO UPDATE SET
+			username = excluded.username,
+			first_name = excluded.first_name,
+			last_name = excluded.last_name,
+			updated_at = excluded.updated_at`,
+		userID, username, firstName, lastName,
+	)
+	return err
+}
+
 // UserInfo represents a user with aggregate message stats.
 type UserInfo struct {
 	UserID       int64
+	Username     string
+	FirstName    string
+	LastName     string
 	MessageCount int
 	LastMessage  time.Time
 }
@@ -464,9 +491,12 @@ type UserInfo struct {
 // GetAllUsers returns all users who have sent or received messages, ordered by last activity.
 func (s *Storage) GetAllUsers() ([]UserInfo, error) {
 	rows, err := s.db.Query(`
-		SELECT user_id, COUNT(*) AS msg_count, COALESCE(MAX(created_at), '') AS last_msg
-		FROM messages
-		GROUP BY user_id
+		SELECT m.user_id,
+			COALESCE(p.username, ''), COALESCE(p.first_name, ''), COALESCE(p.last_name, ''),
+			COUNT(*) AS msg_count, COALESCE(MAX(m.created_at), '') AS last_msg
+		FROM messages m
+		LEFT JOIN user_profiles p ON m.user_id = p.user_id
+		GROUP BY m.user_id
 		ORDER BY last_msg DESC`)
 	if err != nil {
 		return nil, fmt.Errorf("get all users: %w", err)
@@ -477,7 +507,7 @@ func (s *Storage) GetAllUsers() ([]UserInfo, error) {
 	for rows.Next() {
 		var u UserInfo
 		var lastMsg string
-		if err := rows.Scan(&u.UserID, &u.MessageCount, &lastMsg); err != nil {
+		if err := rows.Scan(&u.UserID, &u.Username, &u.FirstName, &u.LastName, &u.MessageCount, &lastMsg); err != nil {
 			return nil, fmt.Errorf("scan user info: %w", err)
 		}
 		if lastMsg != "" {

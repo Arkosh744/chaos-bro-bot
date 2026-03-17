@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -48,6 +49,10 @@ func (s *Server) handleUsers(w http.ResponseWriter, _ *http.Request) {
 
 	type userDTO struct {
 		UserID       int64  `json:"user_id"`
+		Username     string `json:"username"`
+		FirstName    string `json:"first_name"`
+		LastName     string `json:"last_name"`
+		DisplayName  string `json:"display_name"`
 		MessageCount int    `json:"message_count"`
 		LastMessage  string `json:"last_message"`
 		IsOwner      bool   `json:"is_owner"`
@@ -59,8 +64,23 @@ func (s *Server) handleUsers(w http.ResponseWriter, _ *http.Request) {
 		if !u.LastMessage.IsZero() {
 			lastMsg = u.LastMessage.Format("2006-01-02 15:04:05")
 		}
+		// Build display name: prefer first_name, fallback to username, then ID
+		displayName := u.FirstName
+		if displayName == "" {
+			displayName = u.Username
+		}
+		if displayName == "" {
+			displayName = fmt.Sprintf("User %d", u.UserID)
+		}
+		if u.LastName != "" {
+			displayName = displayName + " " + u.LastName
+		}
 		result = append(result, userDTO{
 			UserID:       u.UserID,
+			Username:     u.Username,
+			FirstName:    u.FirstName,
+			LastName:     u.LastName,
+			DisplayName:  displayName,
 			MessageCount: u.MessageCount,
 			LastMessage:  lastMsg,
 			IsOwner:      u.UserID == s.ownerID(),

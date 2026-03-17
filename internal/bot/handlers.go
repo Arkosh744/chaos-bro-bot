@@ -87,12 +87,23 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 
 func (b *Bot) handleStart(c tele.Context) error {
 	log.Printf("[%d] /start from %s", c.Sender().ID, c.Sender().Username)
+	b.saveUserProfile(c)
 	name := tricksterNames[rand.Intn(len(tricksterNames))]
 	greeting := fmt.Sprintf("Йо. Я %s. Жми кнопки или просто пиши мне.", name)
 	if ego := features.GetAlterEgo(); ego != nil {
 		greeting = fmt.Sprintf("Йо. Сегодня я %s. Режим: %s. Жми кнопки или просто пиши.", name, ego.Name)
 	}
 	return c.Send(greeting, menu)
+}
+
+func (b *Bot) saveUserProfile(c tele.Context) {
+	s := c.Sender()
+	if s == nil {
+		return
+	}
+	if err := b.store.UpsertUserProfile(s.ID, s.Username, s.FirstName, s.LastName); err != nil {
+		log.Printf("[%d] upsert user profile error: %v", s.ID, err)
+	}
 }
 
 func (b *Bot) handleGrounding(c tele.Context) error {
@@ -219,6 +230,9 @@ func (b *Bot) handleText(c tele.Context) error {
 	userID := c.Sender().ID
 	log.Printf("[%d] text: %s", userID, text)
 	defer b.checkAndSendAchievements(c, "message")
+
+	// Update user profile info
+	b.saveUserProfile(c)
 
 	// Save user message
 	if _, err := b.store.SaveMessage(userID, "user", text); err != nil {
