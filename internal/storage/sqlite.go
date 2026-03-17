@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -72,6 +73,13 @@ func (s *Storage) migrate() error {
 			name TEXT NOT NULL,
 			unlocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (user_id, name)
+		);
+		CREATE TABLE IF NOT EXISTS user_facts (
+			user_id INTEGER NOT NULL,
+			category TEXT NOT NULL,
+			fact TEXT NOT NULL,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, category)
 		);
 	`)
 	return err
@@ -273,6 +281,169 @@ func (s *Storage) GetCounter(userID int64, name string) (int, error) {
 		return 0, err
 	}
 	return val, nil
+}
+
+// --- User Facts ---
+
+type UserFact struct {
+	Category  string
+	Fact      string
+	UpdatedAt time.Time
+}
+
+func (s *Storage) SaveFact(userID int64, category, fact string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO user_facts (user_id, category, fact, updated_at)
+		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(user_id, category) DO UPDATE SET
+			fact = excluded.fact,
+			updated_at = excluded.updated_at`,
+		userID, category, fact,
+	)
+	return err
+}
+
+func (s *Storage) GetFacts(userID int64) ([]UserFact, error) {
+	rows, err := s.db.Query(
+		"SELECT category, fact, updated_at FROM user_facts WHERE user_id = ? ORDER BY category",
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get facts: %w", err)
+	}
+	defer rows.Close()
+
+	var facts []UserFact
+	for rows.Next() {
+		var f UserFact
+		if err := rows.Scan(&f.Category, &f.Fact, &f.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan fact: %w", err)
+		}
+		facts = append(facts, f)
+	}
+	return facts, nil
+}
+
+func (s *Storage) GetFactsAsText(userID int64) (string, error) {
+	facts, err := s.GetFacts(userID)
+	if err != nil {
+		return "", err
+	}
+	if len(facts) == 0 {
+		return "", nil
+	}
+	var sb strings.Builder
+	for _, f := range facts {
+		sb.WriteString(f.Category + ": " + f.Fact + "\n")
+	}
+	return sb.String(), nil
+}
+
+// GetMessageCount returns the total number of messages for a user.
+func (s *Storage) GetMessageCount(userID int64) (int, error) {
+	var count int
+	err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM messages WHERE user_id = ?",
+		userID,
+	).Scan(&count)
+	return count, err
+}
+
+// GetMessageCountToday returns the number of messages for a user since midnight.
+func (s *Storage) GetMessageCountToday(userID int64) (int, error) {
+	var count int
+	err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM messages WHERE user_id = ? AND created_at >= date('now', 'start of day')",
+		userID,
+	).Scan(&count)
+	return count, err
+}
+
+// MoodEntry represents a single mood data point.
+type MoodEntry struct {
+	Score     int
+	CreatedAt time.Time
+}
+
+// GetMoodHistory extracts mood scores from [mood:N] messages over the last N days.
+func (s *Storage) GetMoodHistory(userID int64, days int) ([]MoodEntry, error) {
+	rows, err := s.db.Query(`
+		SELECT
+			CAST(SUBSTR(text, 7, LENGTH(text) - 7) AS INTEGER) AS score,
+			created_at
+		FROM messages
+		WHERE user_id = ?
+			AND role = 'user'
+			AND text LIKE '[mood:%]'
+			AND created_at >= datetime('now', ? || ' days')
+		ORDER BY created_at ASC`,
+		userID, fmt.Sprintf("-%d", days),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get mood history: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []MoodEntry
+	for rows.Next() {
+		var e MoodEntry
+		if err := rows.Scan(&e.Score, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan mood entry: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
+
+// HourlyActivity represents message count for a specific hour.
+type HourlyActivity struct {
+	Hour  int
+	Count int
+}
+
+// GetHourlyActivity returns message counts grouped by hour of day.
+func (s *Storage) GetHourlyActivity(userID int64) ([]HourlyActivity, error) {
+	rows, err := s.db.Query(`
+		SELECT CAST(strftime('%H', created_at) AS INTEGER) AS hour, COUNT(*) AS cnt
+		FROM messages
+		WHERE user_id = ? AND role = 'user'
+		GROUP BY hour
+		ORDER BY hour`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get hourly activity: %w", err)
+	}
+	defer rows.Close()
+
+	var activity []HourlyActivity
+	for rows.Next() {
+		var h HourlyActivity
+		if err := rows.Scan(&h.Hour, &h.Count); err != nil {
+			return nil, fmt.Errorf("scan hourly activity: %w", err)
+		}
+		activity = append(activity, h)
+	}
+	return activity, nil
+}
+
+// GetMessageCountSinceDate returns the number of messages for a user since a given time.
+func (s *Storage) GetMessageCountSinceDate(userID int64, since time.Time) (int, error) {
+	var count int
+	err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM messages WHERE user_id = ? AND created_at >= ?",
+		userID, since,
+	).Scan(&count)
+	return count, err
+}
+
+// DeleteFact removes a user fact by category.
+func (s *Storage) DeleteFact(userID int64, category string) error {
+	_, err := s.db.Exec(
+		"DELETE FROM user_facts WHERE user_id = ? AND category = ?",
+		userID, category,
+	)
+	return err
 }
 
 func (s *Storage) IncrementCounter(userID int64, name string) (int, error) {
