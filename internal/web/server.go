@@ -25,6 +25,7 @@ type Server struct {
 	scheduler *scheduler.Scheduler
 	mux       *http.ServeMux
 	authToken string
+	sendFunc  func(userID int64, text string) error
 }
 
 // New creates a new web server instance. Scheduler can be nil and set later via SetScheduler.
@@ -60,6 +61,11 @@ func (s *Server) SetScheduler(sched *scheduler.Scheduler) {
 	s.scheduler = sched
 }
 
+// SetSendFunc sets the callback used to send Telegram messages from the admin panel.
+func (s *Server) SetSendFunc(fn func(userID int64, text string) error) {
+	s.sendFunc = fn
+}
+
 func (s *Server) registerRoutes() {
 	// API routes — protected by auth middleware
 	s.mux.HandleFunc("/api/users", s.authAPI(s.handleUsers))
@@ -71,6 +77,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/config", s.authAPI(s.handleConfig))
 	s.mux.HandleFunc("/api/config/scheduler", s.authAPI(s.handleConfigScheduler))
 	s.mux.HandleFunc("/api/config/hours", s.authAPI(s.handleConfigHours))
+	s.mux.HandleFunc("/api/summary", s.authAPI(s.handleSummary))
+	s.mux.HandleFunc("/api/send", s.authAPI(s.handleSend))
+	s.mux.HandleFunc("/api/scheduler/ping", s.authAPI(s.handleSchedulerPing))
 
 	// Static files — protected by auth middleware (cookie or query param)
 	staticFS, err := fs.Sub(staticFiles, "static")

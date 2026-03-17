@@ -81,9 +81,13 @@ func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperCl
 
 	b.scheduler = scheduler.New(schedCfg, tg, cl, store)
 
-	// Wire scheduler into web server if it was started early
+	// Wire scheduler and send function into web server if it was started early
 	if b.web != nil {
 		b.web.SetScheduler(b.scheduler)
+		b.web.SetSendFunc(func(userID int64, text string) error {
+			_, err := b.tg.Send(&tele.User{ID: userID}, text)
+			return err
+		})
 	}
 
 	b.registerHandlers()

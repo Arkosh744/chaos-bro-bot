@@ -353,6 +353,98 @@ func (s *Server) handleConfigScheduler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSummary returns the bot's context summary for the selected user.
+func (s *Server) handleSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	uid := s.getUserID(r)
+
+	summary, lastMessageID, err := s.store.GetSummary(uid)
+	if err != nil {
+		log.Printf("web: get summary: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "failed to get summary")
+		return
+	}
+
+	s.writeJSON(w, map[string]any{
+		"summary":         summary,
+		"last_message_id": lastMessageID,
+	})
+}
+
+// handleSend sends a Telegram message to the specified user.
+func (s *Server) handleSend(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.sendFunc == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "send function not initialized")
+		return
+	}
+
+	var req struct {
+		UserID int64  `json:"user_id"`
+		Text   string `json:"text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if req.UserID == 0 {
+		req.UserID = s.ownerID()
+	}
+	if req.Text == "" {
+		s.writeError(w, http.StatusBadRequest, "text is required")
+		return
+	}
+
+	if err := s.sendFunc(req.UserID, req.Text); err != nil {
+		log.Printf("web: send message to %d: %v", req.UserID, err)
+		s.writeError(w, http.StatusInternalServerError, "failed to send message")
+		return
+	}
+
+	// Save bot message to storage
+	if _, err := s.store.SaveMessage(req.UserID, "bot", req.Text); err != nil {
+		log.Printf("web: save sent message: %v", err)
+	}
+
+	s.writeJSON(w, map[string]string{"status": "ok"})
+}
+
+// handleSchedulerPing triggers an immediate scheduler ping to the specified user.
+func (s *Server) handleSchedulerPing(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	if s.scheduler == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "scheduler not initialized")
+		return
+	}
+
+	var req struct {
+		UserID int64 `json:"user_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if req.UserID == 0 {
+		req.UserID = s.ownerID()
+	}
+
+	go s.scheduler.SendPingNow(req.UserID)
+
+	s.writeJSON(w, map[string]string{"status": "ok"})
+}
+
 // handleConfigHours updates the scheduler min/max hours at runtime.
 func (s *Server) handleConfigHours(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {

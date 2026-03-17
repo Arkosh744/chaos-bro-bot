@@ -91,6 +91,11 @@ func (s *Scheduler) Stop() {
 	close(s.stop)
 }
 
+// SendPingNow triggers an immediate ping to the specified user.
+func (s *Scheduler) SendPingNow(userID int64) {
+	s.sendPingTo(userID)
+}
+
 func (s *Scheduler) loop() {
 	for {
 		delay := s.randomDelay()
@@ -134,6 +139,10 @@ func (s *Scheduler) randomDelay() time.Duration {
 }
 
 func (s *Scheduler) sendPing() {
+	s.sendPingTo(s.cfg.OwnerID)
+}
+
+func (s *Scheduler) sendPingTo(userID int64) {
 	var msg string
 
 	// 40% quote, 30% grounding, 30% trickster with context
@@ -144,19 +153,19 @@ func (s *Scheduler) sendPing() {
 	case roll < 70:
 		msg = "🌍 " + features.RandomGrounding()
 	default:
-		msg = s.generateTricksterPing()
+		msg = s.generateTricksterPingFor(userID)
 	}
 
-	recipient := &chatRecipient{id: s.cfg.OwnerID}
+	recipient := &chatRecipient{id: userID}
 	if _, err := s.tg.Send(recipient, msg); err != nil {
-		log.Printf("scheduler send: %v", err)
+		log.Printf("scheduler send to %d: %v", userID, err)
 	} else {
-		log.Printf("scheduler ping sent: %.50s...", msg)
+		log.Printf("scheduler ping sent to %d: %.50s...", userID, msg)
 	}
 
 	// Save bot message to storage
 	if s.store != nil {
-		if _, err := s.store.SaveMessage(s.cfg.OwnerID, "bot", msg); err != nil {
+		if _, err := s.store.SaveMessage(userID, "bot", msg); err != nil {
 			log.Printf("scheduler save message: %v", err)
 		}
 	}
@@ -185,14 +194,18 @@ func (s *Scheduler) generateQuotePing() string {
 }
 
 func (s *Scheduler) generateTricksterPing() string {
+	return s.generateTricksterPingFor(s.cfg.OwnerID)
+}
+
+func (s *Scheduler) generateTricksterPingFor(userID int64) string {
 	// Build context from storage
 	var userCtx string
 	if s.store != nil {
-		summary, _, err := s.store.GetSummary(s.cfg.OwnerID)
+		summary, _, err := s.store.GetSummary(userID)
 		if err != nil {
 			log.Printf("scheduler get summary: %v", err)
 		}
-		msgs, err := s.store.GetLastMessages(s.cfg.OwnerID, 5)
+		msgs, err := s.store.GetLastMessages(userID, 5)
 		if err != nil {
 			log.Printf("scheduler get messages: %v", err)
 		}

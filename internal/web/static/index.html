@@ -1167,6 +1167,12 @@
                     <button class="btn" onclick="addFact()">Добавить</button>
                 </div>
             </div>
+            <div class="card" style="margin-top: 16px;">
+                <div class="card-title">Контекст бота</div>
+                <div id="summary-container">
+                    <div class="loading">Загрузка</div>
+                </div>
+            </div>
         </div>
 
         <!-- Achievements -->
@@ -1183,6 +1189,10 @@
                 <div class="card-title">Последние сообщения</div>
                 <div id="messages-container" class="messages-list">
                     <div class="loading">Загрузка</div>
+                </div>
+                <div class="send-message-form" style="display:flex;gap:8px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
+                    <input type="text" id="send-msg-input" placeholder="Отправить сообщение..." onkeydown="if(event.key==='Enter')sendMessage()" style="flex:1;padding:10px 14px;background:var(--glass);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--sans);font-size:0.85rem;outline:none;">
+                    <button class="btn" onclick="sendMessage()">Отправить</button>
                 </div>
             </div>
         </div>
@@ -1525,22 +1535,24 @@
 
                 if (!facts || facts.length === 0) {
                     container.innerHTML = '<div class="empty"><div class="empty-icon">?</div><p>Досье пустое. Бот ещё не собрал информацию.</p></div>';
-                    return;
+                } else {
+                    container.innerHTML = facts.map(f =>
+                        '<div class="fact-item" data-category="' + escapeHtml(f.category) + '">' +
+                            '<span class="fact-category">' + escapeHtml(f.category) + '</span>' +
+                            '<span class="fact-value">' + escapeHtml(f.fact) + '</span>' +
+                            '<div class="fact-actions">' +
+                                '<button class="btn-icon" onclick="editFact(this)" title="Редактировать">&#9998;</button>' +
+                                '<button class="btn-icon" onclick="deleteFact(\'' + escapeHtml(f.category) + '\')" title="Удалить">&#10005;</button>' +
+                            '</div>' +
+                        '</div>'
+                    ).join('');
                 }
-
-                container.innerHTML = facts.map(f =>
-                    '<div class="fact-item" data-category="' + escapeHtml(f.category) + '">' +
-                        '<span class="fact-category">' + escapeHtml(f.category) + '</span>' +
-                        '<span class="fact-value">' + escapeHtml(f.fact) + '</span>' +
-                        '<div class="fact-actions">' +
-                            '<button class="btn-icon" onclick="editFact(this)" title="Редактировать">&#9998;</button>' +
-                            '<button class="btn-icon" onclick="deleteFact(\'' + escapeHtml(f.category) + '\')" title="Удалить">&#10005;</button>' +
-                        '</div>' +
-                    '</div>'
-                ).join('');
             } catch (err) {
                 console.error('Profile load error:', err);
             }
+
+            // Also load context summary
+            loadSummary();
         }
 
         function editFact(btn) {
@@ -1711,6 +1723,13 @@
                             '<div class="setting-desc">Порт веб-дашборда (изменение требует перезапуска)</div>' +
                         '</div>' +
                         '<div class="setting-value">:' + config.web_port + '</div>' +
+                    '</div>' +
+                    '<div class="setting-row">' +
+                        '<div>' +
+                            '<div class="setting-label">Ручной пинг</div>' +
+                            '<div class="setting-desc">Немедленно отправить пинг выбранному пользователю</div>' +
+                        '</div>' +
+                        '<button class="btn btn-danger" onclick="sendPingNow()">Отправить пинг сейчас</button>' +
                     '</div>';
             } catch (err) {
                 console.error('Settings load error:', err);
@@ -1778,6 +1797,76 @@
             document.body.appendChild(toast);
 
             setTimeout(() => { if (toast.parentNode) toast.remove(); }, 2500);
+        }
+
+        // Send message to user via Telegram
+        async function sendMessage() {
+            const input = document.getElementById('send-msg-input');
+            const text = input.value.trim();
+            if (!text) return;
+
+            const uid = currentUserID || 0;
+            try {
+                const res = await fetch('/api/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: uid, text: text })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    input.value = '';
+                    showToast('Сообщение отправлено');
+                    loadMessages();
+                } else if (data.error) {
+                    showToast(data.error);
+                }
+            } catch (err) {
+                console.error('Send message error:', err);
+                showToast('Ошибка отправки');
+            }
+        }
+
+        // Send immediate ping via scheduler
+        async function sendPingNow() {
+            const uid = currentUserID || 0;
+            try {
+                const res = await fetch('/api/scheduler/ping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: uid })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    showToast('Пинг отправлен');
+                } else if (data.error) {
+                    showToast(data.error);
+                }
+            } catch (err) {
+                console.error('Ping error:', err);
+                showToast('Ошибка отправки пинга');
+            }
+        }
+
+        // Load summary for profile tab
+        async function loadSummary() {
+            try {
+                const res = await fetch('/api/summary' + userQuery());
+                const data = await res.json();
+                const container = document.getElementById('summary-container');
+
+                if (!data.summary) {
+                    container.innerHTML = '<div class="empty"><div class="empty-icon">&#128203;</div><p>Контекст ещё не сформирован</p></div>';
+                    return;
+                }
+
+                container.innerHTML =
+                    '<pre style="white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:0.82rem;line-height:1.6;color:var(--text);background:var(--glass);border:1px solid var(--border);border-radius:var(--radius-sm);padding:16px;margin:0;max-height:400px;overflow-y:auto;">' +
+                    escapeHtml(data.summary) +
+                    '</pre>' +
+                    '<div style="margin-top:8px;font-family:var(--mono);font-size:0.7rem;color:var(--text-dim);">Последнее обновление: сообщение #' + data.last_message_id + '</div>';
+            } catch (err) {
+                console.error('Summary load error:', err);
+            }
         }
 
         // Tab data loader
