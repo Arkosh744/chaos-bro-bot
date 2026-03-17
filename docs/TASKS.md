@@ -11,3 +11,4 @@
 - [x] [100%] Silence Mode: /silence command — emoji-only responses for 24h (2026-03-17)
 - [x] [100%] Relationship Levels: 6-уровневая система отношений бот-юзер + /level команда (2026-03-17)
 - [x] [100%] Bot Mirror: /mirror — бот копирует стиль письма пользователя на 10 сообщений (2026-03-17)
+- [x] [100%] Fix 6 critical issues: blocking sleep, web auth, scheduler toggle, capsule always-on, /help, dead code (2026-03-17)

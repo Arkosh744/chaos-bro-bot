@@ -29,8 +29,9 @@ type Config struct {
 		APIKey string `yaml:"api_key"`
 	} `yaml:"groq"`
 	Web struct {
-		Enabled bool `yaml:"enabled"`
-		Port    int  `yaml:"port"`
+		Enabled   bool   `yaml:"enabled"`
+		Port      int    `yaml:"port"`
+		AuthToken string `yaml:"auth_token"`
 	} `yaml:"web"`
 }
 

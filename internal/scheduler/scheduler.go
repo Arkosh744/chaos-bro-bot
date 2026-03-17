@@ -73,13 +73,15 @@ func (s *Scheduler) GetConfig() Config {
 }
 
 func (s *Scheduler) Start() {
+	// Capsule delivery runs always — capsules are user-created and must be delivered regardless of scheduler state
+	go s.capsuleLoop()
+
 	if !s.cfg.Enabled || s.cfg.OwnerID == 0 {
-		log.Println("Scheduler disabled")
+		log.Println("Scheduler disabled (capsule delivery still active)")
 		return
 	}
 	log.Printf("Scheduler started: pings between %d:00-%d:00 for user %d", s.cfg.MinHour, s.cfg.MaxHour, s.cfg.OwnerID)
 	go s.loop()
-	go s.capsuleLoop()
 	go s.morningCheckLoop()
 	go s.digestLoop()
 }
@@ -99,6 +101,9 @@ func (s *Scheduler) loop() {
 			timer.Stop()
 			return
 		case <-timer.C:
+			if !s.IsEnabled() {
+				continue
+			}
 			s.sendPing()
 		}
 	}
@@ -246,6 +251,9 @@ func (s *Scheduler) morningCheckLoop() {
 			timer.Stop()
 			return
 		case <-timer.C:
+			if !s.IsEnabled() {
+				continue
+			}
 			s.sendMorningCheck()
 		}
 	}
@@ -329,6 +337,9 @@ func (s *Scheduler) digestLoop() {
 			timer.Stop()
 			return
 		case <-timer.C:
+			if !s.IsEnabled() {
+				continue
+			}
 			s.sendDigest()
 		}
 	}

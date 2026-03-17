@@ -85,6 +85,34 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	return replyFn(reply, menu)
 }
 
+func (b *Bot) handleHelp(c tele.Context) error {
+	help := `🎭 *Команды Трикстера:*
+
+*Кнопки:*
+👁 Очнись — техника заземления
+🎲 Ебани куба — хаос-задание
+🔮 Судьба — предсказание
+🎱 Кинь кости — рандомайзер решений
+🔥 Зажарь — roast на основе профиля
+🧙 Мудрость — абсурдная мудрость
+⭐ Гороскоп — антигороскоп дня
+📊 Настроение — график за 7 дней
+🪞 Зеркало — копирует твой стиль (10 сообщ.)
+🫁 Дыши — дыхательный таймер
+
+*Команды:*
+/profile — твой профиль
+/level — уровень отношений
+/achievements — ачивки
+/silence — режим эмоджи (24ч)
+/truth — раскрыть сегодняшнюю ложь бота
+/capsule N текст — капсула времени
+/help — эта справка
+
+*Просто пиши* — трикстер ответит с характером`
+	return c.Send(help, menu, tele.ModeMarkdown)
+}
+
 func (b *Bot) handleStart(c tele.Context) error {
 	log.Printf("[%d] /start from %s", c.Sender().ID, c.Sender().Username)
 	b.saveUserProfile(c)
@@ -338,7 +366,6 @@ func (b *Bot) handleText(c tele.Context) error {
 		if err := c.Send(bargain, menu); err != nil {
 			log.Printf("[%d] bargain send error: %v", userID, err)
 		}
-		time.Sleep(2 * time.Second)
 	}
 
 	// Build context

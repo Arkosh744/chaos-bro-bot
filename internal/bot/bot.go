@@ -85,6 +85,7 @@ func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperCl
 
 func (b *Bot) registerHandlers() {
 	b.tg.Handle("/start", b.handleStart)
+	b.tg.Handle("/help", b.handleHelp)
 	b.tg.Handle(&btnGround, b.handleGrounding)
 	b.tg.Handle(&btnChaos, b.handleChaos)
 	b.tg.Handle(&btnRandomize, b.handleRandomize)
