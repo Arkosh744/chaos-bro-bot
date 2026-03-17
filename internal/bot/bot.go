@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/claude"
+	"github.com/Arkosh744/chaos-bro-bot/internal/groq"
 	"github.com/Arkosh744/chaos-bro-bot/internal/scheduler"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
 	tele "gopkg.in/telebot.v4"
@@ -13,6 +14,7 @@ import (
 type Bot struct {
 	tg        *tele.Bot
 	claude    *claude.Client
+	whisper   *groq.WhisperClient
 	store     *storage.Storage
 	scheduler *scheduler.Scheduler
 	ownerID   int64
@@ -34,7 +36,7 @@ var (
 	btnMoreChaos  = inlineMenu.Data("🔄 Другое", "more_chaos")
 )
 
-func New(token string, ownerID int64, cl *claude.Client, store *storage.Storage, schedCfg scheduler.Config) (*Bot, error) {
+func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperClient, store *storage.Storage, schedCfg scheduler.Config) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  token,
 		Poller: &tele.LongPoller{Timeout: 30 * time.Second},
@@ -54,6 +56,7 @@ func New(token string, ownerID int64, cl *claude.Client, store *storage.Storage,
 	b := &Bot{
 		tg:      tg,
 		claude:  cl,
+		whisper: whisper,
 		store:   store,
 		ownerID: ownerID,
 	}
@@ -75,6 +78,7 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle(&btnBreathe, b.handleBreathing)
 	b.tg.Handle("/capsule", b.handleCapsule)
 	b.tg.Handle(tele.OnText, b.handleText)
+	b.tg.Handle(tele.OnVoice, b.handleVoice)
 }
 
 func (b *Bot) Start() {

@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"math/rand"
 	"strings"
@@ -214,6 +215,74 @@ func (b *Bot) handleText(c tele.Context) error {
 	}
 
 	// Check if summary needs update (async, don't block response)
+	go b.maybeUpdateSummary(userID)
+
+	return replyFn(reply, menu)
+}
+
+func (b *Bot) handleVoice(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] voice message", userID)
+
+	if b.whisper == nil {
+		return c.Send("Голосовые не настроены. Нужен Groq API ключ.", menu)
+	}
+
+	voice := c.Message().Voice
+	if voice == nil {
+		return nil
+	}
+
+	replyFn, stop := b.startThinking(c)
+
+	file, err := b.tg.FileByID(voice.FileID)
+	if err != nil {
+		stop()
+		log.Printf("[%d] voice download error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	reader, err := b.tg.File(&file)
+	if err != nil {
+		stop()
+		log.Printf("[%d] voice file read error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+	defer reader.Close()
+
+	audioData, err := io.ReadAll(reader)
+	if err != nil {
+		stop()
+		log.Printf("[%d] voice read error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	text, err := b.whisper.Transcribe(audioData, "voice.ogg")
+	if err != nil {
+		stop()
+		log.Printf("[%d] whisper error: %v", userID, err)
+		return c.Send("Не расслышал. Попробуй ещё раз или напиши текстом.", menu)
+	}
+
+	log.Printf("[%d] transcribed: %s", userID, text)
+
+	if _, err := b.store.SaveMessage(userID, "user", "[voice] "+text); err != nil {
+		log.Printf("[%d] save voice message error: %v", userID, err)
+	}
+
+	userCtx := b.buildUserContext(userID)
+
+	reply, err := features.TricksterReply(context.Background(), b.claude, text, userCtx)
+	if err != nil {
+		stop()
+		log.Printf("[%d] trickster error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
+		log.Printf("[%d] save bot reply error: %v", userID, err)
+	}
+
 	go b.maybeUpdateSummary(userID)
 
 	return replyFn(reply, menu)

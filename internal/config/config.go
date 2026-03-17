@@ -25,6 +25,9 @@ type Config struct {
 	Storage struct {
 		DBPath string `yaml:"db_path"`
 	} `yaml:"storage"`
+	Groq struct {
+		APIKey string `yaml:"api_key"`
+	} `yaml:"groq"`
 }
 
 func Load() (*Config, error) {

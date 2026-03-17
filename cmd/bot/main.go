@@ -9,6 +9,7 @@ import (
 	"github.com/Arkosh744/chaos-bro-bot/internal/bot"
 	"github.com/Arkosh744/chaos-bro-bot/internal/claude"
 	"github.com/Arkosh744/chaos-bro-bot/internal/config"
+	"github.com/Arkosh744/chaos-bro-bot/internal/groq"
 	"github.com/Arkosh744/chaos-bro-bot/internal/scheduler"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
 )
@@ -27,6 +28,12 @@ func main() {
 
 	cl := claude.New(cfg.Claude.Model, cfg.Claude.Timeout)
 
+	var whisper *groq.WhisperClient
+	if cfg.Groq.APIKey != "" {
+		whisper = groq.NewWhisper(cfg.Groq.APIKey)
+		log.Println("Groq Whisper enabled")
+	}
+
 	schedCfg := scheduler.Config{
 		Enabled: cfg.Scheduler.Enabled,
 		MinHour: cfg.Scheduler.MinHour,
@@ -34,7 +41,7 @@ func main() {
 		OwnerID: cfg.Telegram.OwnerID,
 	}
 
-	b, err := bot.New(cfg.Telegram.Token, cfg.Telegram.OwnerID, cl, store, schedCfg)
+	b, err := bot.New(cfg.Telegram.Token, cfg.Telegram.OwnerID, cl, whisper, store, schedCfg)
 	if err != nil {
 		log.Fatalf("bot init: %v", err)
 	}
