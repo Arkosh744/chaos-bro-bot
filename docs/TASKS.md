@@ -5,3 +5,4 @@
 - [x] [100%] Task 6: Quick-wins — sleep mode, easter eggs, time-of-day mood (2026-03-17)
 - [x] [100%] Task 7: Quick-wins v2 — offended replies, predictions, bargains (2026-03-17)
 - [x] [100%] Task 8: Achievements + Daily Quest + Photo Reactions (2026-03-17)
+- [x] [100%] Task 9: Web Dashboard — embedded SPA with dark glassmorphism theme (2026-03-17)

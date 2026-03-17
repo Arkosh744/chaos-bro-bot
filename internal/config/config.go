@@ -28,6 +28,10 @@ type Config struct {
 	Groq struct {
 		APIKey string `yaml:"api_key"`
 	} `yaml:"groq"`
+	Web struct {
+		Enabled bool `yaml:"enabled"`
+		Port    int  `yaml:"port"`
+	} `yaml:"web"`
 }
 
 func Load() (*Config, error) {
@@ -72,8 +76,11 @@ func Load() (*Config, error) {
 	if cfg.Scheduler.MaxHour == 0 {
 		cfg.Scheduler.MaxHour = 22
 	}
-if cfg.Storage.DBPath == "" {
+	if cfg.Storage.DBPath == "" {
 		cfg.Storage.DBPath = "trickster.db"
+	}
+	if cfg.Web.Port == 0 {
+		cfg.Web.Port = 8080
 	}
 
 	return &cfg, nil

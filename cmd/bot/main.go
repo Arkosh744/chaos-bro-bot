@@ -41,7 +41,7 @@ func main() {
 		OwnerID: cfg.Telegram.OwnerID,
 	}
 
-	b, err := bot.New(cfg.Telegram.Token, cfg.Telegram.OwnerID, cl, whisper, store, schedCfg)
+	b, err := bot.New(cfg.Telegram.Token, cfg.Telegram.OwnerID, cl, whisper, store, schedCfg, *cfg)
 	if err != nil {
 		log.Fatalf("bot init: %v", err)
 	}

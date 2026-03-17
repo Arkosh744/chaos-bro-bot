@@ -6,9 +6,11 @@ import (
 	"time"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/claude"
+	"github.com/Arkosh744/chaos-bro-bot/internal/config"
 	"github.com/Arkosh744/chaos-bro-bot/internal/groq"
 	"github.com/Arkosh744/chaos-bro-bot/internal/scheduler"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
+	"github.com/Arkosh744/chaos-bro-bot/internal/web"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -18,6 +20,7 @@ type Bot struct {
 	whisper   *groq.WhisperClient
 	store     *storage.Storage
 	scheduler *scheduler.Scheduler
+	web       *web.Server
 	ownerID   int64
 }
 
@@ -37,7 +40,7 @@ var (
 	btnMoreChaos  = inlineMenu.Data("🔄 Другое", "more_chaos")
 )
 
-func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperClient, store *storage.Storage, schedCfg scheduler.Config) (*Bot, error) {
+func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperClient, store *storage.Storage, schedCfg scheduler.Config, cfg config.Config) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  token,
 		Poller: &tele.LongPoller{Timeout: 30 * time.Second},
@@ -63,6 +66,11 @@ func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperCl
 	}
 
 	b.scheduler = scheduler.New(schedCfg, tg, cl, store)
+
+	if cfg.Web.Enabled {
+		b.web = web.New(cfg, store)
+	}
+
 	b.registerHandlers()
 
 	return b, nil
@@ -85,6 +93,7 @@ func (b *Bot) registerHandlers() {
 		})
 	}
 	b.tg.Handle("/achievements", b.handleAchievements)
+	b.tg.Handle("/profile", b.handleProfile)
 	b.tg.Handle(tele.OnPhoto, b.handlePhoto)
 	b.tg.Handle(tele.OnText, b.handleText)
 	b.tg.Handle(tele.OnVoice, b.handleVoice)
@@ -92,6 +101,10 @@ func (b *Bot) registerHandlers() {
 
 func (b *Bot) Start() {
 	log.Println("Trickster bot started")
+
+	if b.web != nil {
+		go b.web.Start()
+	}
 
 	if b.ownerID != 0 {
 		owner := &tele.User{ID: b.ownerID}
