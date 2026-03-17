@@ -358,7 +358,8 @@ func (b *Bot) handleBreathing(c tele.Context) error {
 	log.Printf("[%d] breathing", c.Sender().ID)
 	defer b.checkAndSendAchievements(c, "breathing")
 
-	msg, err := b.tg.Send(c.Recipient(), "\U0001FAC1 Приготовься...", menu)
+	// Send WITHOUT reply keyboard — Telegram blocks Edit on messages with ReplyMarkup
+	msg, err := b.tg.Send(c.Recipient(), "\U0001FAC1 Приготовься...")
 	if err != nil {
 		return c.Send("Не получилось запустить таймер. "+features.RandomFallback(), menu)
 	}
@@ -438,6 +439,19 @@ func (b *Bot) handleMoodScore(c tele.Context, score int) error {
 	return c.Edit(fmt.Sprintf("Утро. Как ты от 1 до 10?\n\n*%d* — %s", score, reply), tele.ModeMarkdown)
 }
 
+func (b *Bot) handleProfile(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /profile", userID)
+
+	facts, err := b.store.GetFacts(userID)
+	if err != nil {
+		log.Printf("[%d] get facts error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	return c.Send(features.FormatProfile(facts), menu, tele.ModeMarkdown)
+}
+
 func (b *Bot) buildUserContext(userID int64) string {
 	summary, _, err := b.store.GetSummary(userID)
 	if err != nil {
@@ -449,7 +463,16 @@ func (b *Bot) buildUserContext(userID int64) string {
 		log.Printf("[%d] get messages error: %v", userID, err)
 	}
 
-	return features.BuildContext(summary, msgs)
+	profile, err := b.store.GetFactsAsText(userID)
+	if err != nil {
+		log.Printf("[%d] get profile error: %v", userID, err)
+	}
+
+	ctx := features.BuildContext(summary, msgs)
+	if profile != "" {
+		ctx = "Профиль пользователя:\n" + profile + "\n\n" + ctx
+	}
+	return ctx
 }
 
 func (b *Bot) maybeUpdateSummary(userID int64) {
@@ -468,6 +491,11 @@ func (b *Bot) maybeUpdateSummary(userID int64) {
 		return
 	}
 	log.Printf("[%d] summary updated", userID)
+
+	// Extract user facts after summary update
+	if err := features.ExtractFacts(context.Background(), b.claude, b.store, userID); err != nil {
+		log.Printf("[%d] extract facts error: %v", userID, err)
+	}
 
 	// Detect patterns after summary update
 	pattern, err := features.DetectPatterns(context.Background(), b.claude, b.store, userID)

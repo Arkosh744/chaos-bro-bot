@@ -8,38 +8,59 @@ import (
 	tele "gopkg.in/telebot.v4"
 )
 
-// BreathingStep defines a single phase of the breathing exercise.
-type BreathingStep struct {
-	Text     string
-	Duration time.Duration
+type breathPhase struct {
+	emoji    string
+	label    string
+	seconds  int
+	barFill  string
+	barEmpty string
 }
 
-// BreathingCycle is the sequence of steps in one breathing round.
-var BreathingCycle = []BreathingStep{
-	{"🫁 Вдох...", 4 * time.Second},
-	{"⏸️ Задержи...", 4 * time.Second},
-	{"💨 Выдох...", 4 * time.Second},
+var phases = []breathPhase{
+	{"🌬", "Вдох", 4, "▓", "░"},
+	{"⏸", "Задержка", 4, "█", "░"},
+	{"💨", "Выдох", 4, "▓", "░"},
 }
 
 // BreathingRounds is the number of full cycles to perform.
 const BreathingRounds = 3
 
+func buildBreathText(phase breathPhase, sec, round int) string {
+	total := phase.seconds
+	filled := sec
+	empty := total - sec
+
+	bar := ""
+	for i := 0; i < filled; i++ {
+		bar += phase.barFill
+	}
+	for i := 0; i < empty; i++ {
+		bar += phase.barEmpty
+	}
+
+	return fmt.Sprintf(
+		"%s  *%s*  [%s]  %dс\n\n_Раунд %d из %d_",
+		phase.emoji, phase.label, bar, total-sec, round, BreathingRounds,
+	)
+}
+
 // RunBreathing edits the given message through a guided breathing exercise.
 func RunBreathing(bot *tele.Bot, msg *tele.Message) {
-	for round := 0; round < BreathingRounds; round++ {
-		for _, step := range BreathingCycle {
-			text := fmt.Sprintf("%s  (%d/%d)", step.Text, round+1, BreathingRounds)
-
-			if _, err := bot.Edit(msg, text); err != nil {
-				log.Printf("breathing edit error: %v", err)
-				return
+	for round := 1; round <= BreathingRounds; round++ {
+		for _, phase := range phases {
+			for sec := 0; sec <= phase.seconds; sec++ {
+				text := buildBreathText(phase, sec, round)
+				if _, err := bot.Edit(msg, text, tele.ModeMarkdown); err != nil {
+					log.Printf("breathing edit error: %v", err)
+				}
+				if sec < phase.seconds {
+					time.Sleep(1 * time.Second)
+				}
 			}
-
-			time.Sleep(step.Duration)
 		}
 	}
 
-	if _, err := bot.Edit(msg, "✅ Готово. Как ощущения?"); err != nil {
+	if _, err := bot.Edit(msg, "✅ *Готово.*\n\nКак ощущения? Напиши одним словом.", tele.ModeMarkdown); err != nil {
 		log.Printf("breathing final edit error: %v", err)
 	}
 }

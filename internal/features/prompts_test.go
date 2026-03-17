@@ -54,10 +54,7 @@ func TestAlterEgo(t *testing.T) {
 	}
 }
 
-func TestBreathingCycle(t *testing.T) {
-	if len(features.BreathingCycle) == 0 {
-		t.Error("expected non-empty breathing cycle")
-	}
+func TestBreathingRounds(t *testing.T) {
 	if features.BreathingRounds < 1 {
 		t.Error("expected at least 1 round")
 	}

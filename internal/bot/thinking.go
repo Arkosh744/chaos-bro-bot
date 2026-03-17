@@ -21,7 +21,7 @@ var thinkingPhrases = []string{
 // Returns reply func that deletes the thinking message and sends the real answer.
 func (b *Bot) startThinking(c tele.Context) (reply func(text string, opts ...interface{}) error, stop func()) {
 	// Send WITHOUT reply keyboard — otherwise Telegram blocks Edit
-	msg, err := b.tg.Send(c.Recipient(), "🤔")
+	msg, err := b.tg.Send(c.Recipient(), "🤔.")
 	if err != nil {
 		log.Printf("[%d] thinking send error: %v", c.Sender().ID, err)
 		return func(text string, opts ...interface{}) error {
@@ -31,7 +31,7 @@ func (b *Bot) startThinking(c tele.Context) (reply func(text string, opts ...int
 
 	var mu sync.Mutex
 	stopped := false
-	step := 1
+	step := 2
 
 	ticker := time.NewTicker(3 * time.Second)
 
