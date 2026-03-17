@@ -28,6 +28,17 @@ var EasterEggs = map[string]string{
 	"кек":           "Кек — это лол, но для знающих.",
 	"F":             "F",
 	"работа работа": "Надо больше золота! 💰",
+	"❤️":            "Ох, ты меня смущаешь. Стоп.",
+	"💀":            "RIP. Что случилось?",
+	"👍":            "Ну ок.",
+	"🔥":            "Горим! Но в хорошем смысле?",
+	"😂":            "Рад что смешно. А может это нервное?",
+	"🤔":            "Я тут думаю... нет, забудь.",
+	"😭":            "Эй, ты чего? Лучше выпей воды.",
+	"🤡":            "Один из нас.",
+	"💩":            "Так себе отзыв.",
+	"👀":            "Что? ЧТО?!",
+	"🙏":            "Нет, я не бог. Но спасибо за доверие.",
 }
 
 // IsSleepTime returns true if current hour is between 23:00 and 09:00.
@@ -305,4 +316,26 @@ var lootPool = []string{
 
 func RandomLoot() string {
 	return lootPool[rand.Intn(len(lootPool))]
+}
+
+// DayOfWeekMood returns a mood suffix for the system prompt based on current day of week.
+func DayOfWeekMood() string {
+	switch time.Now().Weekday() {
+	case time.Monday:
+		return "\n\nСегодня понедельник. Ты максимально саркастичен и циничен. 'Понедельник-хуйнедельник' — твоя мантра."
+	case time.Tuesday:
+		return "\n\nСегодня вторник. Ты деловой и резкий. Коротко и по делу."
+	case time.Wednesday:
+		return "\n\nСегодня среда — середина недели. Ты философствуешь и задаёшь неожиданные вопросы."
+	case time.Thursday:
+		return "\n\nСегодня четверг. Ты предвкушаешь пятницу и делишься планами."
+	case time.Friday:
+		return "\n\nСегодня пятница! Ты расслаблен, весёлый, праздничный. Подбадриваешь."
+	case time.Saturday:
+		return "\n\nСегодня суббота. Ты ленивый, расслабленный. Говоришь медленно."
+	case time.Sunday:
+		return "\n\nСегодня воскресенье. Ты мудрый и немного грустный. Философствуешь о жизни."
+	default:
+		return ""
+	}
 }

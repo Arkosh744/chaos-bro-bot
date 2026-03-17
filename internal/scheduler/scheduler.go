@@ -73,8 +73,9 @@ func (s *Scheduler) GetConfig() Config {
 }
 
 func (s *Scheduler) Start() {
-	// Capsule delivery runs always — capsules are user-created and must be delivered regardless of scheduler state
+	// Capsule and reminder delivery runs always — user-created items must be delivered regardless of scheduler state
 	go s.capsuleLoop()
+	go s.reminderLoop()
 
 	if !s.cfg.Enabled || s.cfg.OwnerID == 0 {
 		log.Println("Scheduler disabled (capsule delivery still active)")
@@ -293,6 +294,19 @@ func (s *Scheduler) sendMorningCheck() {
 	} else if err != nil {
 		log.Printf("daily quest generate: %v", err)
 	}
+
+	// Pre-generate daily lie so it doesn't slow down handleText
+	lie, truth, err := features.GenerateLie(context.Background(), s.claude)
+	if err != nil {
+		log.Printf("[%d] pre-generate lie error: %v", s.cfg.OwnerID, err)
+	} else {
+		today := time.Now().Format("2006-01-02")
+		if err := s.store.SaveLie(s.cfg.OwnerID, lie, truth, today); err != nil {
+			log.Printf("[%d] save pre-generated lie error: %v", s.cfg.OwnerID, err)
+		} else {
+			log.Printf("[%d] daily lie pre-generated", s.cfg.OwnerID)
+		}
+	}
 }
 
 func (s *Scheduler) deliverCapsules() {
@@ -342,6 +356,45 @@ func (s *Scheduler) digestLoop() {
 			}
 			s.sendDigest()
 		}
+	}
+}
+
+func (s *Scheduler) reminderLoop() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			s.deliverReminders()
+		}
+	}
+}
+
+func (s *Scheduler) deliverReminders() {
+	if s.store == nil {
+		return
+	}
+
+	reminders, err := s.store.GetDueReminders()
+	if err != nil {
+		log.Printf("reminder delivery error: %v", err)
+		return
+	}
+
+	for _, r := range reminders {
+		msg := fmt.Sprintf("⏰ Эй! Ты просил напомнить: %s", r.Text)
+		recipient := &chatRecipient{id: r.UserID}
+		if _, err := s.tg.Send(recipient, msg); err != nil {
+			log.Printf("reminder send to %d: %v", r.UserID, err)
+			continue
+		}
+		if err := s.store.MarkReminderDelivered(r.ID); err != nil {
+			log.Printf("reminder mark delivered %d: %v", r.ID, err)
+		}
+		log.Printf("reminder delivered to %d: %.50s", r.UserID, r.Text)
 	}
 }
 

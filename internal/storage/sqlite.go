@@ -96,6 +96,15 @@ func (s *Storage) migrate() error {
 			last_name TEXT NOT NULL DEFAULT '',
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
+		CREATE TABLE IF NOT EXISTS reminders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			text TEXT NOT NULL,
+			remind_at TIMESTAMP NOT NULL,
+			delivered INTEGER NOT NULL DEFAULT 0,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_reminders_deliver ON reminders(delivered, remind_at);
 	`)
 	return err
 }
@@ -621,4 +630,46 @@ func (s *Storage) IncrementCounter(userID int64, name string) (int, error) {
 	var val int
 	err = s.db.QueryRow("SELECT value FROM counters WHERE user_id = ? AND name = ?", userID, name).Scan(&val)
 	return val, err
+}
+
+// --- Reminders ---
+
+type Reminder struct {
+	ID       int64
+	UserID   int64
+	Text     string
+	RemindAt time.Time
+}
+
+func (s *Storage) SaveReminder(userID int64, text string, remindAt time.Time) error {
+	_, err := s.db.Exec(
+		"INSERT INTO reminders (user_id, text, remind_at) VALUES (?, ?, ?)",
+		userID, text, remindAt,
+	)
+	return err
+}
+
+func (s *Storage) GetDueReminders() ([]Reminder, error) {
+	rows, err := s.db.Query(
+		"SELECT id, user_id, text, remind_at FROM reminders WHERE delivered = 0 AND remind_at <= CURRENT_TIMESTAMP",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var reminders []Reminder
+	for rows.Next() {
+		var r Reminder
+		if err := rows.Scan(&r.ID, &r.UserID, &r.Text, &r.RemindAt); err != nil {
+			return nil, err
+		}
+		reminders = append(reminders, r)
+	}
+	return reminders, nil
+}
+
+func (s *Storage) MarkReminderDelivered(id int64) error {
+	_, err := s.db.Exec("UPDATE reminders SET delivered = 1 WHERE id = ?", id)
+	return err
 }

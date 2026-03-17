@@ -54,6 +54,15 @@ func parseLieResponse(raw string) (string, string, error) {
 	return lie, truth, nil
 }
 
+// GetTodayLie retrieves today's lie from storage for a given user.
+func GetTodayLie(store *storage.Storage, userID int64) (lie, truth string, exists bool) {
+	l, t, _, err := store.GetTodayLie(userID, todayDate())
+	if err != nil || l == "" {
+		return "", "", false
+	}
+	return l, t, true
+}
+
 // InjectLie appends the lie into the reply with a natural-sounding prefix.
 func InjectLie(reply, lie string) string {
 	return reply + "\n\nКстати, " + lowercaseFirst(lie)

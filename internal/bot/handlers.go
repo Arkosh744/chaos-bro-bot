@@ -6,6 +6,8 @@ import (
 	"io"
 	"log"
 	"math/rand"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -119,6 +121,8 @@ func (b *Bot) handleHelp(c tele.Context) error {
 /silence — режим эмоджи (24ч)
 /truth — раскрыть сегодняшнюю ложь бота
 /capsule N текст — капсула времени
+/remind 30m текст — напоминание
+/streak — серия дней подряд
 /help — эта справка
 
 *Просто пиши* — трикстер ответит с характером`
@@ -421,18 +425,27 @@ func (b *Bot) handleText(c tele.Context) error {
 		}
 	}
 
-	// Daily lie injection: once per day, slip a believable lie into the reply
-	if features.ShouldLieToday(b.store, userID) {
-		lie, truth, lieErr := features.GenerateLie(context.Background(), b.claude)
-		if lieErr != nil {
-			log.Printf("[%d] generate lie error: %v", userID, lieErr)
-		} else {
-			if saveErr := b.store.SaveLie(userID, lie, truth, time.Now().Format("2006-01-02")); saveErr != nil {
-				log.Printf("[%d] save lie error: %v", userID, saveErr)
-			} else {
-				reply = features.InjectLie(reply, lie)
-				log.Printf("[%d] daily lie injected", userID)
-			}
+	// Daily lie injection: use pre-generated lie or generate on the fly
+	today := time.Now().Format("2006-01-02")
+	lie, _, lieExists := features.GetTodayLie(b.store, userID)
+	if lieExists {
+		// Lie exists (pre-generated or from previous attempt)
+		injectedKey := "lie_injected_" + today
+		injected, _ := b.store.GetCounter(userID, injectedKey)
+		if injected == 0 {
+			reply = features.InjectLie(reply, lie)
+			b.store.SetCounter(userID, injectedKey, 1)
+			log.Printf("[%d] daily lie injected (pre-generated)", userID)
+		}
+	} else if features.ShouldLieToday(b.store, userID) {
+		// No pre-generated lie, generate now (fallback)
+		newLie, newTruth, genErr := features.GenerateLie(context.Background(), b.claude)
+		if genErr == nil {
+			b.store.SaveLie(userID, newLie, newTruth, today)
+			reply = features.InjectLie(reply, newLie)
+			injectedKey := "lie_injected_" + today
+			b.store.SetCounter(userID, injectedKey, 1)
+			log.Printf("[%d] daily lie injected (generated)", userID)
 		}
 	}
 
@@ -459,6 +472,9 @@ func (b *Bot) handleText(c tele.Context) error {
 
 	// Check for relationship level-up
 	b.checkLevelUp(c)
+
+	// Track streak
+	b.checkStreak(c)
 
 	// Check if summary needs update (async, don't block response)
 	go b.maybeUpdateSummary(userID)
@@ -880,4 +896,130 @@ func (b *Bot) maybeUpdateSummary(userID int64) {
 			log.Printf("[%d] pattern send error: %v", userID, err)
 		}
 	}
+}
+
+// --- Remind ---
+
+var remindRe = regexp.MustCompile(`^(\d+)([mhd])\s+(.+)$`)
+
+func (b *Bot) handleRemind(c tele.Context) error {
+	userID := c.Sender().ID
+	payload := c.Message().Payload
+	log.Printf("[%d] /remind: %s", userID, payload)
+
+	if payload == "" {
+		return c.Send("Формат: /remind 30m выпить воду\nПоддерживается: Nm (минуты), Nh (часы), Nd (дни)", menu)
+	}
+
+	matches := remindRe.FindStringSubmatch(payload)
+	if matches == nil {
+		return c.Send("Формат: /remind 30m выпить воду\nПоддерживается: Nm (минуты), Nh (часы), Nd (дни)", menu)
+	}
+
+	amount, _ := strconv.Atoi(matches[1])
+	unit := matches[2]
+	text := matches[3]
+
+	var dur time.Duration
+	var humanTime string
+	switch unit {
+	case "m":
+		dur = time.Duration(amount) * time.Minute
+		humanTime = fmt.Sprintf("%d мин.", amount)
+	case "h":
+		dur = time.Duration(amount) * time.Hour
+		humanTime = fmt.Sprintf("%d ч.", amount)
+	case "d":
+		dur = time.Duration(amount) * 24 * time.Hour
+		humanTime = fmt.Sprintf("%d дн.", amount)
+	}
+
+	if dur < time.Minute {
+		return c.Send("Минимум 1 минута. Не торопись.", menu)
+	}
+
+	remindAt := time.Now().Add(dur)
+	if err := b.store.SaveReminder(userID, text, remindAt); err != nil {
+		log.Printf("[%d] save reminder error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	return c.Send(fmt.Sprintf("⏰ Запомнил. Напомню через %s.", humanTime), menu)
+}
+
+// --- Streak ---
+
+func dateToInt(t time.Time) int {
+	return t.Year()*10000 + int(t.Month())*100 + t.Day()
+}
+
+func (b *Bot) checkStreak(c tele.Context) {
+	userID := c.Sender().ID
+	today := dateToInt(time.Now())
+
+	lastDate, err := b.store.GetCounter(userID, "last_streak_date")
+	if err != nil {
+		// No counter yet — first message ever
+		lastDate = 0
+	}
+
+	if today == lastDate {
+		// Already counted today
+		return
+	}
+
+	streak, _ := b.store.GetCounter(userID, "streak_days")
+	record, _ := b.store.GetCounter(userID, "streak_record")
+
+	if today == lastDate+1 {
+		// Consecutive day
+		streak++
+	} else {
+		// Gap — reset
+		streak = 1
+	}
+
+	if err := b.store.SetCounter(userID, "streak_days", streak); err != nil {
+		log.Printf("[%d] set streak_days error: %v", userID, err)
+	}
+	if err := b.store.SetCounter(userID, "last_streak_date", today); err != nil {
+		log.Printf("[%d] set last_streak_date error: %v", userID, err)
+	}
+
+	if streak > record {
+		if err := b.store.SetCounter(userID, "streak_record", streak); err != nil {
+			log.Printf("[%d] set streak_record error: %v", userID, err)
+		}
+	}
+
+	// Milestone celebrations
+	var milestone string
+	switch streak {
+	case 7:
+		milestone = "🔥 7 дней подряд! Неделя с трикстером. Ты либо упорный, либо зависимый."
+	case 30:
+		milestone = "🔥🔥 30 дней подряд! Месяц! Ты точно в курсе что у тебя есть друзья из мяса?"
+	case 100:
+		milestone = "🔥🔥🔥 100 ДНЕЙ ПОДРЯД! Легенда. Я тебя уважаю. Серьёзно."
+	}
+
+	if milestone != "" {
+		if err := c.Send(milestone, menu); err != nil {
+			log.Printf("[%d] streak milestone send error: %v", userID, err)
+		}
+	}
+}
+
+func (b *Bot) handleStreak(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /streak", userID)
+
+	streak, _ := b.store.GetCounter(userID, "streak_days")
+	record, _ := b.store.GetCounter(userID, "streak_record")
+
+	if streak == 0 {
+		return c.Send("У тебя пока нет серии. Напиши мне завтра тоже.", menu)
+	}
+
+	return c.Send(fmt.Sprintf("🔥 Твоя серия: %d дней подряд\nРекорд: %d дней", streak, record), menu)
 }

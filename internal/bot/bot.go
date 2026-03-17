@@ -129,6 +129,8 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle("/wisdom", b.handleWisdom)
 	b.tg.Handle("/horoscope", b.handleHoroscope)
 	b.tg.Handle("/level", b.handleLevel)
+	b.tg.Handle("/remind", b.handleRemind)
+	b.tg.Handle("/streak", b.handleStreak)
 	b.tg.Handle(tele.OnPhoto, b.handlePhoto)
 	b.tg.Handle(tele.OnText, b.handleText)
 	b.tg.Handle(tele.OnVoice, b.handleVoice)
