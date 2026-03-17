@@ -2,6 +2,7 @@ package features_test
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -301,4 +302,74 @@ func TestContextAffectsReply_Integration(t *testing.T) {
 	t.Logf("with cat context: %s", reply2)
 	// We can't deterministically assert the reply mentions cats,
 	// but we verify both work without error
+}
+
+func TestDetectPatterns_Integration(t *testing.T) {
+	skipIfNoClaudeCLI(t)
+
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := storage.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	// Seed messages with a pattern (repeated complaints about work)
+	for i := range 20 {
+		role := "user"
+		if i%2 == 1 {
+			role = "bot"
+		}
+		texts := []string{
+			"Устал на работе", "Бывает", "Опять работа", "Терпи",
+			"Достала эта работа", "Уволься", "Ненавижу работу", "Ну ты и нытик",
+			"Работа задолбала", "Кофе попей", "Заебала работа", "Понял",
+		}
+		store.SaveMessage(123, role, texts[i%len(texts)])
+	}
+
+	// Update summary first
+	cl := claude.New("sonnet", 120*time.Second)
+	if err := features.UpdateSummary(context.Background(), cl, store, 123); err != nil {
+		t.Fatalf("update summary: %v", err)
+	}
+
+	pattern, err := features.DetectPatterns(context.Background(), cl, store, 123)
+	if err != nil {
+		t.Fatalf("detect patterns: %v", err)
+	}
+	// Should detect work complaints pattern
+	t.Logf("pattern result: %q", pattern)
+	// Pattern can be empty or non-empty, but should not error
+}
+
+func TestGenerateDigest_Integration(t *testing.T) {
+	skipIfNoClaudeCLI(t)
+
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	store, err := storage.New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	for i := range 15 {
+		role := "user"
+		if i%2 == 1 {
+			role = "bot"
+		}
+		store.SaveMessage(123, role, fmt.Sprintf("message %d", i))
+	}
+
+	cl := claude.New("sonnet", 120*time.Second)
+	features.UpdateSummary(context.Background(), cl, store, 123)
+
+	digest, err := features.GenerateDigest(context.Background(), cl, store, 123)
+	if err != nil {
+		t.Fatalf("generate digest: %v", err)
+	}
+	if digest == "" {
+		t.Fatal("expected non-empty digest")
+	}
+	t.Logf("digest: %s", digest)
 }

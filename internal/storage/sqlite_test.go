@@ -3,6 +3,7 @@ package storage_test
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
 )
@@ -128,6 +129,108 @@ func TestStorage_SummaryUpsert(t *testing.T) {
 	}
 	if summary != "v2" || lastID != 20 {
 		t.Errorf("upsert failed: got %q %d", summary, lastID)
+	}
+}
+
+func TestStorage_Capsules(t *testing.T) {
+	db := newTestDB(t)
+	defer db.Close()
+
+	deliver := time.Now().UTC().Add(-1 * time.Hour) // already due
+	if err := db.SaveCapsule(123, "hello future me", deliver); err != nil {
+		t.Fatal(err)
+	}
+
+	// Not yet due
+	if err := db.SaveCapsule(123, "too early", time.Now().UTC().Add(24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	caps, err := db.GetDueCapsules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(caps) != 1 {
+		t.Fatalf("expected 1 due capsule, got %d", len(caps))
+	}
+	if caps[0].Text != "hello future me" {
+		t.Errorf("unexpected text: %q", caps[0].Text)
+	}
+
+	if err := db.MarkCapsuleDelivered(caps[0].ID); err != nil {
+		t.Fatal(err)
+	}
+
+	caps, err = db.GetDueCapsules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(caps) != 0 {
+		t.Fatalf("expected 0 after delivery, got %d", len(caps))
+	}
+}
+
+func TestStorage_Counters(t *testing.T) {
+	db := newTestDB(t)
+	defer db.Close()
+
+	val, err := db.IncrementCounter(123, "messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != 1 {
+		t.Errorf("expected 1, got %d", val)
+	}
+
+	val, err = db.IncrementCounter(123, "messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != 2 {
+		t.Errorf("expected 2, got %d", val)
+	}
+
+	// Different counter
+	val, err = db.IncrementCounter(123, "other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != 1 {
+		t.Errorf("expected 1 for other counter, got %d", val)
+	}
+
+	// Different user
+	val, err = db.IncrementCounter(456, "messages")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if val != 1 {
+		t.Errorf("expected 1 for different user, got %d", val)
+	}
+}
+
+func TestStorage_LastMessageTime(t *testing.T) {
+	db := newTestDB(t)
+	defer db.Close()
+
+	// No messages yet
+	tm, err := db.LastMessageTime(123)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tm.IsZero() {
+		t.Error("expected zero time for no messages")
+	}
+
+	db.SaveMessage(123, "user", "hello")
+	time.Sleep(10 * time.Millisecond)
+
+	tm, err = db.LastMessageTime(123)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tm.IsZero() {
+		t.Error("expected non-zero time after message")
 	}
 }
 
