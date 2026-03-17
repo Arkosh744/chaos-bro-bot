@@ -14,13 +14,14 @@ import (
 )
 
 type Bot struct {
-	tg        *tele.Bot
-	claude    *claude.Client
-	whisper   *groq.WhisperClient
-	store     *storage.Storage
-	scheduler *scheduler.Scheduler
-	web       *web.Server
-	ownerID   int64
+	tg                    *tele.Bot
+	claude                *claude.Client
+	whisper               *groq.WhisperClient
+	store                 *storage.Storage
+	scheduler             *scheduler.Scheduler
+	web                   *web.Server
+	ownerID               int64
+	groupInterjectChance  int
 }
 
 var menu = &tele.ReplyMarkup{ResizeKeyboard: true}
@@ -50,7 +51,7 @@ var (
 	btnMoreChaos  = inlineMenu.Data("🔄 Другое", "more_chaos")
 )
 
-func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperClient, store *storage.Storage, schedCfg scheduler.Config, cfg interface{}, webSrv *web.Server) (*Bot, error) {
+func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperClient, store *storage.Storage, schedCfg scheduler.Config, cfg interface{}, webSrv *web.Server, groupInterjectChance int) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  token,
 		Poller: &tele.LongPoller{Timeout: 30 * time.Second},
@@ -71,12 +72,13 @@ func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperCl
 	)
 
 	b := &Bot{
-		tg:      tg,
-		claude:  cl,
-		whisper: whisper,
-		store:   store,
-		ownerID: ownerID,
-		web:     webSrv,
+		tg:                   tg,
+		claude:               cl,
+		whisper:              whisper,
+		store:                store,
+		ownerID:              ownerID,
+		web:                  webSrv,
+		groupInterjectChance: groupInterjectChance,
 	}
 
 	b.scheduler = scheduler.New(schedCfg, tg, cl, store)
@@ -135,6 +137,7 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle("/level", b.handleLevel)
 	b.tg.Handle("/remind", b.handleRemind)
 	b.tg.Handle("/streak", b.handleStreak)
+	b.tg.Handle("/trickster", b.handleTricksterIntro)
 	b.tg.Handle(tele.OnPhoto, b.handlePhoto)
 	b.tg.Handle(tele.OnText, b.handleText)
 	b.tg.Handle(tele.OnVoice, b.handleVoice)

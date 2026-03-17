@@ -13,3 +13,4 @@
 - [x] [100%] Bot Mirror: /mirror — бот копирует стиль письма пользователя на 10 сообщений (2026-03-17)
 - [x] [100%] Fix 6 critical issues: blocking sleep, web auth, scheduler toggle, capsule always-on, /help, dead code (2026-03-17)
 - [x] [100%] Web Admin: summary viewer, send messages, scheduler ping button (2026-03-17)
+- [x] [100%] Group chat mode: mention/reply detection, random interject, /trickster intro (2026-03-17)

@@ -27,6 +27,34 @@ var tricksterNames = []string{
 	"Данте с Районной", "Кратос Уставший", "Довакин Ленивый",
 }
 
+// isGroupChat returns true if the message is from a group or supergroup chat.
+func isGroupChat(c tele.Context) bool {
+	return c.Chat().Type == tele.ChatGroup || c.Chat().Type == tele.ChatSuperGroup
+}
+
+// isBotMentioned checks if the bot was mentioned or replied to in a group message.
+func (b *Bot) isBotMentioned(c tele.Context) bool {
+	// Check if message is a reply to bot
+	if c.Message().ReplyTo != nil && c.Message().ReplyTo.Sender != nil {
+		if c.Message().ReplyTo.Sender.ID == b.tg.Me.ID {
+			return true
+		}
+	}
+	// Check if bot username is mentioned
+	if b.tg.Me.Username != "" {
+		return strings.Contains(strings.ToLower(c.Text()), "@"+strings.ToLower(b.tg.Me.Username))
+	}
+	return false
+}
+
+// replyOpts returns reply keyboard for private chats, nil for groups.
+func (b *Bot) replyOpts(c tele.Context) *tele.ReplyMarkup {
+	if isGroupChat(c) {
+		return nil
+	}
+	return menu
+}
+
 func (b *Bot) checkAndSendAchievements(c tele.Context, event string) {
 	unlocked := features.CheckAchievements(b.store, c.Sender().ID, event)
 	for _, msg := range unlocked {
@@ -294,7 +322,51 @@ func (b *Bot) handleText(c tele.Context) error {
 	// Update user profile info
 	b.saveUserProfile(c)
 
-	// Save user message
+	// Group chat: save with chatID, apply group filtering logic
+	if isGroupChat(c) {
+		chatID := c.Chat().ID
+		senderName := c.Sender().FirstName
+		if _, err := b.store.SaveMessage(chatID, "user", senderName+": "+text); err != nil {
+			log.Printf("[%d] save group message error: %v", chatID, err)
+		}
+
+		if !b.isBotMentioned(c) {
+			// Random interject chance
+			if b.groupInterjectChance > 0 && rand.Intn(100) < b.groupInterjectChance {
+				go b.groupInterject(c, text)
+			}
+			return nil
+		}
+
+		// Strip @botname from text for processing
+		if b.tg.Me.Username != "" {
+			text = strings.ReplaceAll(text, "@"+b.tg.Me.Username, "")
+			text = strings.TrimSpace(text)
+		}
+
+		// If text is empty after stripping mention, use a default prompt
+		if text == "" {
+			text = "Привет"
+		}
+
+		// For group messages, use simplified response flow
+		ctx := b.buildGroupContext(c)
+		replyFn, stop := b.startThinking(c)
+		reply, err := features.TricksterReply(context.Background(), b.claude, text, ctx)
+		if err != nil {
+			stop()
+			log.Printf("[%d] group trickster error: %v", chatID, err)
+			return c.Send(features.RandomFallback())
+		}
+
+		if _, err := b.store.SaveMessage(chatID, "bot", reply); err != nil {
+			log.Printf("[%d] save group bot message error: %v", chatID, err)
+		}
+
+		return replyFn(reply)
+	}
+
+	// Save user message (private chat)
 	if _, err := b.store.SaveMessage(userID, "user", text); err != nil {
 		log.Printf("[%d] save message error: %v", userID, err)
 	}
@@ -1022,4 +1094,58 @@ func (b *Bot) handleStreak(c tele.Context) error {
 	}
 
 	return c.Send(fmt.Sprintf("🔥 Твоя серия: %d дней подряд\nРекорд: %d дней", streak, record), menu)
+}
+
+// --- Group chat ---
+
+// groupInterject sends a random unsolicited comment on a group message.
+func (b *Bot) groupInterject(c tele.Context, text string) {
+	chatID := c.Chat().ID
+
+	ctx := b.buildGroupContext(c)
+	prompt := fmt.Sprintf("Кто-то в группе написал: \"%s\"\n\nТы подслушал и хочешь вставить свои 5 копеек. Одно короткое предложение. Дерзко и по делу.", text)
+
+	systemPrompt := features.TricksterSystemPrompt + features.TimeOfDayMood() + features.DayOfWeekMood()
+	if ctx != "" {
+		systemPrompt = systemPrompt + "\n\n" + ctx
+	}
+
+	reply, err := b.claude.Ask(context.Background(), systemPrompt, prompt)
+	if err != nil {
+		log.Printf("[%d] group interject error: %v", chatID, err)
+		return
+	}
+
+	if _, err := b.store.SaveMessage(chatID, "bot", reply); err != nil {
+		log.Printf("[%d] save group interject error: %v", chatID, err)
+	}
+
+	// No reply keyboard in groups
+	if err := c.Send(reply); err != nil {
+		log.Printf("[%d] group interject send error: %v", chatID, err)
+	}
+}
+
+// buildGroupContext builds conversation context for group chats using chatID.
+func (b *Bot) buildGroupContext(c tele.Context) string {
+	chatID := c.Chat().ID
+	msgs, err := b.store.GetLastMessages(chatID, 10)
+	if err != nil {
+		log.Printf("[%d] get group messages error: %v", chatID, err)
+		return ""
+	}
+	return features.BuildContext("", msgs)
+}
+
+// handleTricksterIntro introduces the bot in a group chat.
+func (b *Bot) handleTricksterIntro(c tele.Context) error {
+	if !isGroupChat(c) {
+		return c.Send("Эта команда для групп. Добавь меня в группу!", menu)
+	}
+	intro := "Йо, народ! Я Трикстер — дерзкий друг-подъёбщик.\n\n" +
+		"Упоминайте меня @" + b.tg.Me.Username + " или отвечайте на мои сообщения.\n" +
+		"Иногда я буду вставлять свои 5 копеек сам.\n\n" +
+		"Команды работают и тут: /help\n\n" +
+		"Чтобы я мог подслушивать и вставлять комментарии — отключите Group Privacy в @BotFather."
+	return c.Send(intro)
 }

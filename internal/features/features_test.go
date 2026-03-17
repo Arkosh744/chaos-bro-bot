@@ -373,3 +373,46 @@ func TestGenerateDigest_Integration(t *testing.T) {
 	}
 	t.Logf("digest: %s", digest)
 }
+
+func TestDayOfWeekMood(t *testing.T) {
+	mood := features.DayOfWeekMood()
+	if mood == "" {
+		t.Error("expected non-empty day of week mood")
+	}
+	if !hasRussian(mood) {
+		t.Errorf("expected Russian text, got: %s", mood)
+	}
+}
+
+func TestEasterEggs_EmojiKeys(t *testing.T) {
+	emojiKeys := []string{
+		"\u2764\uFE0F", "\U0001F480", "\U0001F44D", "\U0001F525",
+		"\U0001F602", "\U0001F914", "\U0001F62D", "\U0001F921",
+		"\U0001F4A9", "\U0001F440", "\U0001F64F",
+	}
+	for _, key := range emojiKeys {
+		if _, ok := features.EasterEggs[key]; !ok {
+			t.Errorf("missing emoji easter egg key: %q", key)
+		}
+	}
+}
+
+func TestRandomLoot_Varies(t *testing.T) {
+	seen := make(map[string]bool)
+	for i := 0; i < 30; i++ {
+		seen[features.RandomLoot()] = true
+	}
+	if len(seen) < 3 {
+		t.Errorf("expected variety in loot, got only %d unique results", len(seen))
+	}
+}
+
+func TestRandomFallback_Varies(t *testing.T) {
+	seen := make(map[string]bool)
+	for i := 0; i < 30; i++ {
+		seen[features.RandomFallback()] = true
+	}
+	if len(seen) < 3 {
+		t.Errorf("expected variety in fallbacks, got only %d unique results", len(seen))
+	}
+}

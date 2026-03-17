@@ -13,3 +13,6 @@ scheduler:
 
 storage:
   db_path: "trickster.db"
+
+group:
+  interject_chance: 10  # percentage 0-100, random interjection chance in groups

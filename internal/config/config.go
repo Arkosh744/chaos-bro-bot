@@ -33,6 +33,9 @@ type Config struct {
 		Port      int    `yaml:"port"`
 		AuthToken string `yaml:"auth_token"`
 	} `yaml:"web"`
+	Group struct {
+		InterjectChance int `yaml:"interject_chance"` // percentage 0-100, default 10
+	} `yaml:"group"`
 }
 
 func Load() (*Config, error) {
@@ -82,6 +85,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.Web.Port == 0 {
 		cfg.Web.Port = 8080
+	}
+	if cfg.Group.InterjectChance == 0 {
+		cfg.Group.InterjectChance = 10
 	}
 
 	return &cfg, nil
