@@ -81,6 +81,14 @@ func (s *Storage) migrate() error {
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (user_id, category)
 		);
+		CREATE TABLE IF NOT EXISTS daily_lies (
+			user_id INTEGER NOT NULL,
+			lie_text TEXT NOT NULL,
+			truth_text TEXT NOT NULL,
+			revealed INTEGER NOT NULL DEFAULT 0,
+			created_date TEXT NOT NULL,
+			PRIMARY KEY (user_id, created_date)
+		);
 	`)
 	return err
 }
@@ -478,6 +486,78 @@ func (s *Storage) GetAllUsers() ([]UserInfo, error) {
 		users = append(users, u)
 	}
 	return users, nil
+}
+
+// --- Daily Lies ---
+
+// SaveLie stores a lie for the user on a given date.
+func (s *Storage) SaveLie(userID int64, lie, truth, date string) error {
+	_, err := s.db.Exec(
+		"INSERT OR IGNORE INTO daily_lies (user_id, lie_text, truth_text, created_date) VALUES (?, ?, ?, ?)",
+		userID, lie, truth, date,
+	)
+	return err
+}
+
+// GetTodayLie returns today's lie for the user. Returns empty strings if no lie exists.
+func (s *Storage) GetTodayLie(userID int64, date string) (lie string, truth string, revealed bool, err error) {
+	var revealedInt int
+	err = s.db.QueryRow(
+		"SELECT lie_text, truth_text, revealed FROM daily_lies WHERE user_id = ? AND created_date = ?",
+		userID, date,
+	).Scan(&lie, &truth, &revealedInt)
+	if err == sql.ErrNoRows {
+		return "", "", false, nil
+	}
+	return lie, truth, revealedInt == 1, err
+}
+
+// RevealLie marks today's lie as revealed for the user.
+func (s *Storage) RevealLie(userID int64, date string) error {
+	_, err := s.db.Exec(
+		"UPDATE daily_lies SET revealed = 1 WHERE user_id = ? AND created_date = ?",
+		userID, date,
+	)
+	return err
+}
+
+// SetCounter sets a counter to a specific value (upsert).
+func (s *Storage) SetCounter(userID int64, name string, value int) error {
+	_, err := s.db.Exec(`
+		INSERT INTO counters (user_id, name, value) VALUES (?, ?, ?)
+		ON CONFLICT(user_id, name) DO UPDATE SET value = excluded.value`,
+		userID, name, value,
+	)
+	return err
+}
+
+// IsSilenceMode checks if silence mode is active for a user.
+// Returns true if current time is before the stored unix timestamp.
+func (s *Storage) IsSilenceMode(userID int64) bool {
+	val, err := s.GetCounter(userID, "silence_until")
+	if err != nil {
+		return false
+	}
+	return time.Now().Unix() < int64(val)
+}
+
+// GetSilenceRemaining returns how many hours remain in silence mode.
+// Returns 0 if silence mode is not active.
+func (s *Storage) GetSilenceRemaining(userID int64) int {
+	val, err := s.GetCounter(userID, "silence_until")
+	if err != nil {
+		return 0
+	}
+	until := time.Unix(int64(val), 0)
+	remaining := time.Until(until)
+	if remaining <= 0 {
+		return 0
+	}
+	hours := int(remaining.Hours())
+	if hours == 0 {
+		return 1 // less than an hour, but still active
+	}
+	return hours
 }
 
 func (s *Storage) IncrementCounter(userID int64, name string) (int, error) {
