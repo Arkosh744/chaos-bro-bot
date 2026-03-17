@@ -1,83 +1,44 @@
 # Chaos Bro Bot — Backlog
 
-## Week 1: Quick Wins ✅
-
-- [x] Бот спит ночью (23-9, без claude, "zzz отъебись")
-- [x] Пасхалки ("зуг-зуг", "42", "кабан", "gg")
-- [x] Бот обижается если долго молчишь (>24ч)
-- [x] Настроение по времени суток (сонный/дерзкий/философский)
-- [x] Предсказания — кинь куба на судьбу
-- [x] Time capsule — сообщение себе через N дней
-- [x] Бот торгуется (1/5 сообщений — условие перед ответом)
-- [x] Рандомный лут каждые 10 сообщений
-
-## Week 2: Voice & Personality ✅
-
-- [x] Голосовые IN (Groq Whisper API)
-- [x] Дыхательный таймер с прогресс-баром
-- [x] Альтер-эго (6 личностей, 24ч)
-
-## Week 3: Understanding ✅
-
-- [x] Утренний check-in (1-10, inline кнопки)
-- [x] Паттерн-алерты
-- [x] Недельный дайджест
-
-## Week 4: Gamification ✅
-
-- [x] Ачивки (17 штук, event-based)
-- [x] Ежедневный квест
-- [x] Фото-реакции
+## Week 1-4: Foundation ✅
+Бот спит, пасхалки, обида, настроение, предсказания, капсулы, торг, лут, голосовые, дыхание, альтер-эго, чекины, паттерны, дайджест, ачивки, квесты, фото-реакции.
 
 ## Week 5: Personality+ ✅
+Mood graph, бот врёт, silence mode, уровни отношений, зеркало, roast/wisdom/horoscope, автопрофиль, веб-панель.
 
-- [x] Mood graph (/mood — ASCII)
-- [x] Бот врёт (/truth раскрывает)
-- [x] Режим молчания (/silence — 24ч эмоджи)
-- [x] Уровни отношений (6 тиров, /level)
-- [x] Бот-зеркало (/mirror — 10 сообщений)
-- [x] /roast, /wisdom, /horoscope
-- [x] Автопрофиль пользователя (/profile)
-- [x] Веб-панель (дашборд, юзеры, настройки)
+## v2: Критические фиксы ✅
+- [x] Фикс time.Sleep в bargain
+- [x] Basic auth для веб-панели
+- [x] Фикс scheduler toggle
+- [x] capsuleLoop всегда активен
+- [x] /help команда
+- [x] Удалить мёртвый код TricksterReplyWithLevel
 
-## v2: Критические фиксы
+## v2: UX Quick Wins ✅
+- [x] Offended reply — return early
+- [x] Mirror mode: статус + /mirror off toggle
+- [x] Silence mode: /silence off toggle
+- [x] Breathing ачивка по факту завершения
+- [x] Двухуровневая клавиатура (Ещё/Назад)
+- [x] Onboarding тур при /start
+- [x] claudeReply хелпер
 
-- [ ] Фикс time.Sleep в bargain (блокирует обработчик)
-- [ ] Basic auth для веб-панели
-- [ ] Фикс scheduler toggle (SetEnabled не управляет горутинами)
-- [ ] capsuleLoop всегда активен (независимо от scheduler)
-- [ ] /help команда
-- [ ] Удалить мёртвый код TricksterReplyWithLevel
+## v2: Новые фичи ✅
+- [x] /remind — напоминалки
+- [x] Streak tracking (/streak)
+- [x] Эмоджи-реакции (11 emoji)
+- [x] Тематические дни
+- [x] Pre-generate daily lie
 
-## v2: UX Quick Wins
-
-- [ ] Offended reply с паузой перед ответом
-- [ ] Mirror mode: статус [🪞 7/10] + /mirror off
-- [ ] Silence mode: /silence off + точное время
-- [ ] Breathing ачивка по факту завершения
-- [ ] Двухуровневая клавиатура (основная + "Ещё")
-- [ ] Onboarding тур при /start
-- [ ] claudeReply хелпер (рефакторинг дупликации)
-
-## v2: Новые фичи
-
-- [ ] /remind — напоминалки в стиле трикстера
-- [ ] Streak tracking (серия дней)
-- [ ] Эмоджи-реакции (расширить пасхалки)
-- [ ] Тематические дни (Пн=сарказм, Пт=кайф, Вс=философия)
-- [ ] Мини-игры (/game)
-- [ ] Pre-generate daily lie в утреннем check
-
-## v2: Панель v2
-
-- [ ] Summary viewer
-- [ ] Отправка сообщений из панели
-- [ ] Scheduler управление (пинг сейчас, capsule список)
-- [ ] SSE live updates
+## v2: Панель v2 ✅
+- [x] Summary viewer
+- [x] Отправка сообщений из панели
+- [x] Scheduler ping
 
 ## Когда-нибудь
-
-- [ ] Голосовые OUT (TTS — Edge-TTS)
+- [ ] Мини-игры (/game)
+- [ ] SSE live updates в панели
+- [ ] Голосовые OUT (TTS)
 - [ ] Стикеры/GIF реакции
 - [ ] /compare юзеров
 - [ ] Obsidian sync
