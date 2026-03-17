@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/features"
+	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -181,6 +182,26 @@ func (b *Bot) handlePrediction(c tele.Context) error {
 	return replyFn("🔮 "+prediction, menu)
 }
 
+func (b *Bot) handleSilence(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /silence", userID)
+
+	// Already in silence mode — report remaining time
+	if remaining := b.store.GetSilenceRemaining(userID); remaining > 0 {
+		return c.Send(fmt.Sprintf("Уже молчу. Осталось %d ч.", remaining), menu)
+	}
+
+	// Activate silence mode for 24 hours
+	until := time.Now().Add(24 * time.Hour)
+	if err := b.store.SetCounter(userID, "silence_until", int(until.Unix())); err != nil {
+		log.Printf("[%d] set silence mode error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	log.Printf("[%d] silence mode activated until %s", userID, until.Format(time.RFC3339))
+	return c.Send("\U0001F92B", menu)
+}
+
 func (b *Bot) handleText(c tele.Context) error {
 	text := c.Text()
 	userID := c.Sender().ID
@@ -190,6 +211,25 @@ func (b *Bot) handleText(c tele.Context) error {
 	// Save user message
 	if _, err := b.store.SaveMessage(userID, "user", text); err != nil {
 		log.Printf("[%d] save message error: %v", userID, err)
+	}
+
+	// Silence mode: respond only with emojis
+	if b.store.IsSilenceMode(userID) {
+		log.Printf("[%d] silence mode active", userID)
+
+		replyFn, stop := b.startThinking(c)
+		reply, err := b.claude.Ask(context.Background(), features.SilencePrompt, text)
+		if err != nil {
+			stop()
+			log.Printf("[%d] silence reply error: %v", userID, err)
+			return c.Send("\U0001F636", menu)
+		}
+
+		if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
+			log.Printf("[%d] save silence reply error: %v", userID, err)
+		}
+
+		return replyFn(reply, menu)
 	}
 
 	// Easter eggs: instant reply for specific keywords
@@ -255,6 +295,21 @@ func (b *Bot) handleText(c tele.Context) error {
 			stop()
 			log.Printf("[%d] trickster error: %v", userID, err)
 			return c.Send(features.RandomFallback(), menu)
+		}
+	}
+
+	// Daily lie injection: once per day, slip a believable lie into the reply
+	if features.ShouldLieToday(b.store, userID) {
+		lie, truth, lieErr := features.GenerateLie(context.Background(), b.claude)
+		if lieErr != nil {
+			log.Printf("[%d] generate lie error: %v", userID, lieErr)
+		} else {
+			if saveErr := b.store.SaveLie(userID, lie, truth, time.Now().Format("2006-01-02")); saveErr != nil {
+				log.Printf("[%d] save lie error: %v", userID, saveErr)
+			} else {
+				reply = features.InjectLie(reply, lie)
+				log.Printf("[%d] daily lie injected", userID)
+			}
 		}
 	}
 
@@ -439,6 +494,32 @@ func (b *Bot) handleMoodScore(c tele.Context, score int) error {
 	return c.Edit(fmt.Sprintf("Утро. Как ты от 1 до 10?\n\n*%d* — %s", score, reply), tele.ModeMarkdown)
 }
 
+func (b *Bot) handleTruth(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /truth", userID)
+
+	today := time.Now().Format("2006-01-02")
+	lie, truth, revealed, err := b.store.GetTodayLie(userID, today)
+	if err != nil {
+		log.Printf("[%d] get today lie error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	if lie == "" {
+		return c.Send("Сегодня я был честен. Или нет... \U0001F914", menu)
+	}
+
+	if revealed {
+		return c.Send("Ты уже знаешь. Я соврал: "+lie+"\n\nНа самом деле: "+truth, menu)
+	}
+
+	if revealErr := b.store.RevealLie(userID, today); revealErr != nil {
+		log.Printf("[%d] reveal lie error: %v", userID, revealErr)
+	}
+
+	return c.Send("Я соврал: "+lie+"\n\nНа самом деле: "+truth, menu)
+}
+
 func (b *Bot) handleProfile(c tele.Context) error {
 	userID := c.Sender().ID
 	log.Printf("[%d] /profile", userID)
@@ -450,6 +531,81 @@ func (b *Bot) handleProfile(c tele.Context) error {
 	}
 
 	return c.Send(features.FormatProfile(facts), menu, tele.ModeMarkdown)
+}
+
+func (b *Bot) handleMoodGraph(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /mood", userID)
+
+	entries, err := b.store.GetMoodHistory(userID, 7)
+	if err != nil {
+		log.Printf("[%d] mood history error: %v", userID, err)
+		return c.Send("Не получилось загрузить историю настроения.", menu)
+	}
+
+	if len(entries) == 0 {
+		return c.Send("Нет данных. Жди утреннего чекина.", menu)
+	}
+
+	graph := buildMoodASCII(entries)
+	return c.Send("```\n"+graph+"```", menu, tele.ModeMarkdown)
+}
+
+// buildMoodASCII renders an ASCII chart of mood entries over the last 7 days.
+// Each day shows the latest mood score. Days without data are left blank.
+func buildMoodASCII(entries []storage.MoodEntry) string {
+	now := time.Now()
+
+	// Collect latest score per day for the last 7 days
+	dayScores := make(map[int]int) // offset (0=6 days ago, 6=today) -> score
+	for _, e := range entries {
+		daysAgo := int(now.Sub(e.CreatedAt).Hours() / 24)
+		if daysAgo > 6 {
+			continue
+		}
+		offset := 6 - daysAgo
+		dayScores[offset] = e.Score // last entry wins
+	}
+
+	// Build day labels (short weekday names in Russian)
+	dayNames := []string{"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"}
+	var labels [7]string
+	for i := 0; i < 7; i++ {
+		d := now.AddDate(0, 0, i-6)
+		wd := int(d.Weekday())
+		// Convert Sunday=0 to index 6, Monday=1 to 0, etc.
+		idx := (wd + 6) % 7
+		labels[i] = dayNames[idx]
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Твоё настроение за 7 дней:\n\n")
+
+	// Draw rows from 10 down to 1
+	for row := 10; row >= 1; row-- {
+		sb.WriteString(fmt.Sprintf("%2d|", row))
+		for col := 0; col < 7; col++ {
+			if score, ok := dayScores[col]; ok && score == row {
+				sb.WriteString(" * ")
+			} else {
+				sb.WriteString("   ")
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// Bottom axis
+	sb.WriteString("  +")
+	sb.WriteString(strings.Repeat("---", 7))
+	sb.WriteString("\n")
+
+	// Day labels
+	sb.WriteString("   ")
+	for _, l := range labels {
+		sb.WriteString(fmt.Sprintf("%-3s", l))
+	}
+
+	return sb.String()
 }
 
 func (b *Bot) buildUserContext(userID int64) string {

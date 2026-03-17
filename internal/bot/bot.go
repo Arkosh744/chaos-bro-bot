@@ -93,8 +93,11 @@ func (b *Bot) registerHandlers() {
 			return b.handleMoodScore(c, score)
 		})
 	}
+	b.tg.Handle("/mood", b.handleMoodGraph)
 	b.tg.Handle("/achievements", b.handleAchievements)
 	b.tg.Handle("/profile", b.handleProfile)
+	b.tg.Handle("/truth", b.handleTruth)
+	b.tg.Handle("/silence", b.handleSilence)
 	b.tg.Handle(tele.OnPhoto, b.handlePhoto)
 	b.tg.Handle(tele.OnText, b.handleText)
 	b.tg.Handle(tele.OnVoice, b.handleVoice)
