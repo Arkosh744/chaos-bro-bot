@@ -1,47 +1,60 @@
 # Chaos Bro Bot — Backlog
 
-## Week 1-4: Foundation ✅
-Бот спит, пасхалки, обида, настроение, предсказания, капсулы, торг, лут, голосовые, дыхание, альтер-эго, чекины, паттерны, дайджест, ачивки, квесты, фото-реакции.
+## Foundation (Weeks 1-5) ✅
+Бот спит, пасхалки, обида, настроение, предсказания, капсулы, торг, лут, голосовые, дыхание, альтер-эго, чекины, паттерны, дайджест, ачивки, квесты, фото-реакции, mood graph, бот врёт, silence mode, уровни отношений, зеркало, roast/wisdom/horoscope, автопрофиль, веб-панель.
 
-## Week 5: Personality+ ✅
-Mood graph, бот врёт, silence mode, уровни отношений, зеркало, roast/wisdom/horoscope, автопрофиль, веб-панель.
+## v2: Fixes & UX ✅
+Auth, scheduler fix, help, claudeReply, keyboard, onboarding, mirror/silence toggle, breathing callback.
 
-## v2: Критические фиксы ✅
-- [x] Фикс time.Sleep в bargain
-- [x] Basic auth для веб-панели
-- [x] Фикс scheduler toggle
-- [x] capsuleLoop всегда активен
-- [x] /help команда
-- [x] Удалить мёртвый код TricksterReplyWithLevel
+## v2: Features ✅
+Reminders, streaks, themed days, emoji reactions, pre-gen lies, user profiles in admin.
 
-## v2: UX Quick Wins ✅
-- [x] Offended reply — return early
-- [x] Mirror mode: статус + /mirror off toggle
-- [x] Silence mode: /silence off toggle
-- [x] Breathing ачивка по факту завершения
-- [x] Двухуровневая клавиатура (Ещё/Назад)
-- [x] Onboarding тур при /start
-- [x] claudeReply хелпер
+## Roadmap Week 1 ✅
+- [x] Morning ritual (personalized 3-part package)
+- [x] Evening reflection (3 categories, inline buttons, diary)
+- [x] "I remember" (contextual recall ~15%)
+- [x] Habit tracker (/habit add/done/list/delete)
+- [x] Sleep tracker (/sleep)
+- [x] Docker + docker-compose
 
-## v2: Новые фичи ✅
-- [x] /remind — напоминалки
-- [x] Streak tracking (/streak)
-- [x] Эмоджи-реакции (11 emoji)
-- [x] Тематические дни
-- [x] Pre-generate daily lie
+## Roadmap Week 2-3 ✅
+- [x] Mini-games (/game — guess, truth/dare, danetki, trivia)
+- [x] Leaderboard (/top)
+- [x] Streak rewards + secret commands (/roastme, /serious)
+- [x] Extended alter-egos (+4: Бард, Шеф, Программист, Кот)
+- [x] Graceful degradation (Claude offline mode)
+- [x] SQLite backup (daily + /api/backup)
+- [x] Rate limiting (30/hour)
 
-## v2: Панель v2 ✅
-- [x] Summary viewer
-- [x] Отправка сообщений из панели
-- [x] Scheduler ping
+## Roadmap Week 4 ✅
+- [x] Playlists by mood (/playlist)
+- [x] Letter from future (/future)
+- [x] Anonymous messages (/anon)
+- [x] Chat-style conversation viewer
+- [x] Prompt editor in admin panel
 
-## Когда-нибудь
-- [ ] Мини-игры (/game)
-- [ ] SSE live updates в панели
-- [ ] Голосовые OUT (TTS)
-- [ ] Стикеры/GIF реакции
-- [ ] /compare юзеров
-- [ ] Obsidian sync
-- [ ] Групповой режим
-- [ ] Логи в реальном времени в панели
-- [ ] CSV/JSON экспорт данных
+## Ещё не сделано
+- [ ] Weekly challenge
+- [ ] Bot mood (двусторонние отношения)
+- [ ] Custom easter eggs via admin
+- [ ] Bot learns user phrases
+- [ ] Meditations (/meditate)
+- [ ] SOS mode
+- [ ] Auto mood journal (sentiment analysis)
+- [ ] Storytelling (/story)
+- [ ] Duels (/duel)
+- [ ] Group quests
+- [ ] Linked users
+- [ ] SSE live updates
+- [ ] Webhook
+- [ ] DB migrations
+- [ ] Multi-model selection
+- [ ] Analytics dashboard
+- [ ] Easter egg manager
+- [ ] Achievement editor
+- [ ] Mobile-optimized admin
+- [ ] Telegram login for admin
+- [ ] Prometheus metrics
+- [ ] Config hot-reload
+- [ ] TTS voice output
+- [ ] Stickers/GIF reactions
