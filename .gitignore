@@ -1,0 +1,7 @@
+/bot
+*.exe
+*.db
+.env
+config.local.yaml
+docs/plans/
+docs/SESSION_*.md

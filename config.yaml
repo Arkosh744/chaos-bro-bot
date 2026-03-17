@@ -1,0 +1,13 @@
+telegram:
+  token: "${TELEGRAM_TOKEN}"
+  owner_id: 364444232
+
+claude:
+  model: "sonnet"
+  timeout: 30s
+
+scheduler:
+  enabled: true
+  min_hour: 9
+  max_hour: 22
+  pings_per_day: 2

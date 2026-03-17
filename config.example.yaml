@@ -1,0 +1,15 @@
+telegram:
+  token: "YOUR_BOT_TOKEN"
+  owner_id: 0
+
+claude:
+  model: "haiku"
+  timeout: 120s
+
+scheduler:
+  enabled: false
+  min_hour: 9
+  max_hour: 22
+
+storage:
+  db_path: "trickster.db"

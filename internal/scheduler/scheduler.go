@@ -1,0 +1,182 @@
+package scheduler
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"math/rand"
+	"sync"
+	"time"
+
+	"github.com/Arkosh744/chaos-bro-bot/internal/claude"
+	"github.com/Arkosh744/chaos-bro-bot/internal/features"
+	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
+	tele "gopkg.in/telebot.v4"
+)
+
+type Config struct {
+	Enabled bool
+	MinHour int
+	MaxHour int
+	OwnerID int64
+}
+
+type Scheduler struct {
+	cfg          Config
+	tg           *tele.Bot
+	claude       *claude.Client
+	store        *storage.Storage
+	stop         chan struct{}
+	recentQuotes []string
+	mu           sync.Mutex
+}
+
+func New(cfg Config, tg *tele.Bot, cl *claude.Client, store *storage.Storage) *Scheduler {
+	return &Scheduler{
+		cfg:    cfg,
+		tg:     tg,
+		claude: cl,
+		store:  store,
+		stop:   make(chan struct{}),
+	}
+}
+
+func (s *Scheduler) Start() {
+	if !s.cfg.Enabled || s.cfg.OwnerID == 0 {
+		log.Println("Scheduler disabled")
+		return
+	}
+	log.Printf("Scheduler started: pings between %d:00-%d:00 for user %d", s.cfg.MinHour, s.cfg.MaxHour, s.cfg.OwnerID)
+	go s.loop()
+}
+
+func (s *Scheduler) Stop() {
+	close(s.stop)
+}
+
+func (s *Scheduler) loop() {
+	for {
+		delay := s.randomDelay()
+		log.Printf("Next ping in %s", delay.Round(time.Minute))
+		timer := time.NewTimer(delay)
+
+		select {
+		case <-s.stop:
+			timer.Stop()
+			return
+		case <-timer.C:
+			s.sendPing()
+		}
+	}
+}
+
+// randomDelay returns 2-6 hours, adjusted to stay within the allowed window.
+func (s *Scheduler) randomDelay() time.Duration {
+	minMinutes := 120 // 2 hours
+	maxMinutes := 360 // 6 hours
+	minutes := minMinutes + rand.Intn(maxMinutes-minMinutes)
+	delay := time.Duration(minutes) * time.Minute
+
+	next := time.Now().Add(delay)
+
+	// If next ping lands outside window, push to next day's min hour
+	if next.Hour() >= s.cfg.MaxHour || next.Hour() < s.cfg.MinHour {
+		tomorrow := time.Now().AddDate(0, 0, 1)
+		next = time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(),
+			s.cfg.MinHour, rand.Intn(60), 0, 0, tomorrow.Location())
+		delay = time.Until(next)
+	}
+
+	if delay < time.Minute {
+		delay = time.Minute
+	}
+	return delay
+}
+
+func (s *Scheduler) sendPing() {
+	var msg string
+
+	// 40% quote, 30% grounding, 30% trickster with context
+	roll := rand.Intn(100)
+	switch {
+	case roll < 40:
+		msg = s.generateQuotePing()
+	case roll < 70:
+		msg = "🌍 " + features.RandomGrounding()
+	default:
+		msg = s.generateTricksterPing()
+	}
+
+	recipient := &chatRecipient{id: s.cfg.OwnerID}
+	if _, err := s.tg.Send(recipient, msg); err != nil {
+		log.Printf("scheduler send: %v", err)
+	} else {
+		log.Printf("scheduler ping sent: %.50s...", msg)
+	}
+
+	// Save bot message to storage
+	if s.store != nil {
+		if _, err := s.store.SaveMessage(s.cfg.OwnerID, "bot", msg); err != nil {
+			log.Printf("scheduler save message: %v", err)
+		}
+	}
+}
+
+func (s *Scheduler) generateQuotePing() string {
+	s.mu.Lock()
+	recent := make([]string, len(s.recentQuotes))
+	copy(recent, s.recentQuotes)
+	s.mu.Unlock()
+
+	quote, err := features.GenerateQuote(context.Background(), s.claude, recent)
+	if err != nil {
+		log.Printf("scheduler quote error: %v", err)
+		return "🎮 " + features.RandomFallback()
+	}
+
+	s.mu.Lock()
+	s.recentQuotes = append(s.recentQuotes, quote)
+	if len(s.recentQuotes) > 10 {
+		s.recentQuotes = s.recentQuotes[len(s.recentQuotes)-10:]
+	}
+	s.mu.Unlock()
+
+	return "🎮 " + quote
+}
+
+func (s *Scheduler) generateTricksterPing() string {
+	// Build context from storage
+	var userCtx string
+	if s.store != nil {
+		summary, _, err := s.store.GetSummary(s.cfg.OwnerID)
+		if err != nil {
+			log.Printf("scheduler get summary: %v", err)
+		}
+		msgs, err := s.store.GetLastMessages(s.cfg.OwnerID, 5)
+		if err != nil {
+			log.Printf("scheduler get messages: %v", err)
+		}
+		userCtx = features.BuildContext(summary, msgs)
+	}
+
+	systemPrompt := features.TricksterSystemPrompt
+	if userCtx != "" {
+		systemPrompt = systemPrompt + "\n\n" + userCtx
+	}
+
+	reply, err := s.claude.Ask(context.Background(), systemPrompt,
+		"Напиши пользователю что-нибудь. Вы давно не общались. Просто так, без повода. Можешь спросить как дела или вспомнить что-то из прошлых разговоров.")
+	if err != nil {
+		log.Printf("scheduler trickster error: %v", err)
+		return features.RandomFallback()
+	}
+	return reply
+}
+
+type chatRecipient struct {
+	id int64
+}
+
+func (r *chatRecipient) Recipient() string {
+	return fmt.Sprintf("%d", r.id)
+}
