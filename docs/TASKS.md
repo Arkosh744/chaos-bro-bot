@@ -7,3 +7,5 @@
 - [x] [100%] Task 8: Achievements + Daily Quest + Photo Reactions (2026-03-17)
 - [x] [100%] Task 9: Web Dashboard — embedded SPA with dark glassmorphism theme (2026-03-17)
 - [x] [100%] Task 10: Multi-user dashboard + editable settings + runtime scheduler toggle (2026-03-17)
+- [x] [100%] Bot Lies: daily lie injection + /truth reveal command (2026-03-17)
+- [x] [100%] Silence Mode: /silence command — emoji-only responses for 24h (2026-03-17)
