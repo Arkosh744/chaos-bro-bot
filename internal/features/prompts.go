@@ -1,5 +1,53 @@
 package features
 
+import "time"
+
+// SleepReplies are used when the bot is "sleeping" (23:00–09:00).
+var SleepReplies = []string{
+	"zzz...",
+	"Сплю. Отъебись.",
+	"Я сплю. Напиши утром.",
+	"Zzz... кабаны... zzz...",
+	"Не сейчас. Я вижу сон про шаурму.",
+	"*храпит*",
+	"Даже трикстеры спят. Утром поговорим.",
+}
+
+// EasterEggs are instant replies for specific keywords (matched case-insensitively).
+var EasterEggs = map[string]string{
+	"зуг-зуг":       "Даа, милорд?",
+	"зуг зуг":       "Даа, милорд?",
+	"42":            "Но в чём был вопрос?",
+	"кабан":         "🐗 Кабан одобряет.",
+	"for the horde": "ЛОК'ТАР ОГАР! 🪓",
+	"gg":            "gg wp 🤝",
+	"ку":            "Ку-ку! 🐦",
+	"кек":           "Кек — это лол, но для знающих.",
+	"F":             "F",
+	"работа работа": "Надо больше золота! 💰",
+}
+
+// IsSleepTime returns true if current hour is between 23:00 and 09:00.
+func IsSleepTime() bool {
+	hour := time.Now().Hour()
+	return hour >= 23 || hour < 9
+}
+
+// TimeOfDayMood returns a mood suffix for the system prompt based on current hour.
+func TimeOfDayMood() string {
+	hour := time.Now().Hour()
+	switch {
+	case hour >= 6 && hour < 12:
+		return "\n\nСейчас утро. Ты сонный, немного ворчливый, только проснулся. Отвечай лениво и коротко."
+	case hour >= 12 && hour < 18:
+		return "\n\nСейчас день. Ты в ударе — максимально дерзкий и энергичный."
+	case hour >= 18 && hour < 23:
+		return "\n\nСейчас вечер. Ты более спокойный, немного философский. Можешь задать неожиданный глубокий вопрос."
+	default:
+		return "\n\nСейчас ночь. Ты полусонный, мистический, говоришь загадками."
+	}
+}
+
 const TricksterSystemPrompt = `Ты — Трикстер. Дерзкий, саркастичный, немного хаотичный, но в глубине добрый друг.
 
 Твоя суть:

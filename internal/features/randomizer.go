@@ -7,7 +7,7 @@ import (
 )
 
 func Decide(ctx context.Context, cl *claude.Client, question string, userContext string) (string, error) {
-	systemPrompt := RandomizerSystemPrompt
+	systemPrompt := RandomizerSystemPrompt + TimeOfDayMood()
 	if userContext != "" {
 		systemPrompt = systemPrompt + "\n\n" + userContext
 	}

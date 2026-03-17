@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"strings"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/features"
 	tele "gopkg.in/telebot.v4"
@@ -47,13 +48,24 @@ func (b *Bot) handleGroundingMore(c tele.Context) error {
 }
 
 func (b *Bot) handleChaos(c tele.Context) error {
-	log.Printf("[%d] chaos", c.Sender().ID)
+	userID := c.Sender().ID
+	log.Printf("[%d] chaos", userID)
+
+	// Sleep mode: no claude calls between 23:00 and 09:00
+	if features.IsSleepTime() {
+		reply := features.SleepReplies[rand.Intn(len(features.SleepReplies))]
+		log.Printf("[%d] chaos sleep mode reply", userID)
+		if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
+			log.Printf("[%d] save bot message error: %v", userID, err)
+		}
+		return c.Send(reply, menu)
+	}
 
 	reply, stop := b.startThinking(c)
 	task, err := features.GenerateChaos(context.Background(), b.claude)
 	if err != nil {
 		stop()
-		log.Printf("[%d] chaos error: %v", c.Sender().ID, err)
+		log.Printf("[%d] chaos error: %v", userID, err)
 		task = features.RandomChaos()
 		return c.Send("🎲 "+task, menu)
 	}
@@ -95,6 +107,25 @@ func (b *Bot) handleText(c tele.Context) error {
 	// Save user message
 	if _, err := b.store.SaveMessage(userID, "user", text); err != nil {
 		log.Printf("[%d] save message error: %v", userID, err)
+	}
+
+	// Easter eggs: instant reply for specific keywords
+	if reply, ok := features.EasterEggs[strings.ToLower(text)]; ok {
+		log.Printf("[%d] easter egg match", userID)
+		if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
+			log.Printf("[%d] save bot message error: %v", userID, err)
+		}
+		return c.Send(reply, menu)
+	}
+
+	// Sleep mode: no claude calls between 23:00 and 09:00
+	if features.IsSleepTime() {
+		reply := features.SleepReplies[rand.Intn(len(features.SleepReplies))]
+		log.Printf("[%d] sleep mode reply", userID)
+		if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
+			log.Printf("[%d] save bot message error: %v", userID, err)
+		}
+		return c.Send(reply, menu)
 	}
 
 	// Build context

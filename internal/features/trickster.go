@@ -7,7 +7,7 @@ import (
 )
 
 func TricksterReply(ctx context.Context, cl *claude.Client, message string, userContext string) (string, error) {
-	systemPrompt := TricksterSystemPrompt
+	systemPrompt := TricksterSystemPrompt + TimeOfDayMood()
 	if userContext != "" {
 		systemPrompt = systemPrompt + "\n\n" + userContext
 	}
