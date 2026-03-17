@@ -202,6 +202,18 @@ func (b *Bot) handleSilence(c tele.Context) error {
 	return c.Send("\U0001F92B", menu)
 }
 
+func (b *Bot) handleMirror(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /mirror", userID)
+
+	if err := b.store.SetCounter(userID, "mirror_remaining", 10); err != nil {
+		log.Printf("[%d] set mirror mode error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	return c.Send("\U0001FA9E Зеркало активировано. Следующие 10 сообщений я буду говорить как ты.", menu)
+}
+
 func (b *Bot) handleText(c tele.Context) error {
 	text := c.Text()
 	userID := c.Sender().ID
@@ -227,6 +239,48 @@ func (b *Bot) handleText(c tele.Context) error {
 
 		if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
 			log.Printf("[%d] save silence reply error: %v", userID, err)
+		}
+
+		return replyFn(reply, menu)
+	}
+
+	// Mirror mode: copy user's writing style
+	if mirrorRemaining, _ := b.store.GetCounter(userID, "mirror_remaining"); mirrorRemaining > 0 {
+		log.Printf("[%d] mirror mode active, remaining: %d", userID, mirrorRemaining)
+
+		newVal, err := b.store.DecrementCounter(userID, "mirror_remaining")
+		if err != nil {
+			log.Printf("[%d] decrement mirror counter error: %v", userID, err)
+		}
+
+		// Get last messages for style analysis
+		msgs, err := b.store.GetLastMessages(userID, 20)
+		if err != nil {
+			log.Printf("[%d] get messages for mirror error: %v", userID, err)
+		}
+
+		styleAnalysis := features.AnalyzeStyle(msgs)
+		systemPrompt := fmt.Sprintf(features.MirrorPrompt, styleAnalysis)
+
+		userCtx := b.buildUserContext(userID)
+		if userCtx != "" {
+			systemPrompt = systemPrompt + "\n\n" + userCtx
+		}
+
+		replyFn, stop := b.startThinking(c)
+		reply, err := b.claude.Ask(context.Background(), systemPrompt, text)
+		if err != nil {
+			stop()
+			log.Printf("[%d] mirror reply error: %v", userID, err)
+			return c.Send(features.RandomFallback(), menu)
+		}
+
+		if newVal == 0 {
+			reply = reply + "\n\n\U0001FA9E Зеркало выключено. Я снова я."
+		}
+
+		if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
+			log.Printf("[%d] save mirror reply error: %v", userID, err)
 		}
 
 		return replyFn(reply, menu)
@@ -333,6 +387,9 @@ func (b *Bot) handleText(c tele.Context) error {
 			}
 		}()
 	}
+
+	// Check for relationship level-up
+	b.checkLevelUp(c)
 
 	// Check if summary needs update (async, don't block response)
 	go b.maybeUpdateSummary(userID)
@@ -608,6 +665,60 @@ func buildMoodASCII(entries []storage.MoodEntry) string {
 	return sb.String()
 }
 
+func (b *Bot) handleRoast(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /roast", userID)
+
+	replyFn, stop := b.startThinking(c)
+
+	userCtx := b.buildUserContext(userID)
+	prompt := fmt.Sprintf(features.RoastPrompt, userCtx)
+
+	reply, err := b.claude.Ask(context.Background(), prompt, "Зароасти меня")
+	if err != nil {
+		stop()
+		log.Printf("[%d] roast error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	return replyFn(reply, menu)
+}
+
+func (b *Bot) handleWisdom(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /wisdom", userID)
+
+	replyFn, stop := b.startThinking(c)
+
+	reply, err := b.claude.Ask(context.Background(), features.WisdomPrompt, "Дай мудрость")
+	if err != nil {
+		stop()
+		log.Printf("[%d] wisdom error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	return replyFn("\U0001F9D9 "+reply, menu)
+}
+
+func (b *Bot) handleHoroscope(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /horoscope", userID)
+
+	replyFn, stop := b.startThinking(c)
+
+	today := time.Now().Format("2 January 2006")
+	prompt := fmt.Sprintf(features.AntiHoroscopePrompt, today)
+
+	reply, err := b.claude.Ask(context.Background(), prompt, "Антигороскоп на сегодня")
+	if err != nil {
+		stop()
+		log.Printf("[%d] horoscope error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	return replyFn("\u2B50 "+reply, menu)
+}
+
 func (b *Bot) buildUserContext(userID int64) string {
 	summary, _, err := b.store.GetSummary(userID)
 	if err != nil {
@@ -628,7 +739,63 @@ func (b *Bot) buildUserContext(userID int64) string {
 	if profile != "" {
 		ctx = "Профиль пользователя:\n" + profile + "\n\n" + ctx
 	}
+
+	// Append relationship level context
+	msgCount, err := b.store.GetMessageCount(userID)
+	if err != nil {
+		log.Printf("[%d] get message count error: %v", userID, err)
+	}
+	level := features.GetLevel(msgCount)
+	ctx += features.LevelPromptSuffix(level)
+
 	return ctx
+}
+
+func (b *Bot) handleLevel(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /level", userID)
+
+	msgCount, err := b.store.GetMessageCount(userID)
+	if err != nil {
+		log.Printf("[%d] get message count error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	status := features.FormatLevelStatus(msgCount)
+	return c.Send(status, menu, tele.ModeMarkdown)
+}
+
+// checkLevelUp detects if the user has reached a new relationship level and sends a notification.
+func (b *Bot) checkLevelUp(c tele.Context) {
+	userID := c.Sender().ID
+
+	msgCount, err := b.store.GetMessageCount(userID)
+	if err != nil {
+		log.Printf("[%d] level check get count error: %v", userID, err)
+		return
+	}
+
+	currentLevel := features.GetLevel(msgCount)
+
+	storedLevel, err := b.store.GetCounter(userID, "relationship_level")
+	if err != nil {
+		storedLevel = 1
+	}
+
+	if currentLevel.Level > storedLevel {
+		if err := b.store.SetCounter(userID, "relationship_level", currentLevel.Level); err != nil {
+			log.Printf("[%d] set relationship level error: %v", userID, err)
+			return
+		}
+
+		msg := features.LevelUpMessage(currentLevel)
+		if msg != "" {
+			log.Printf("[%d] level up: %d -> %d (%s)", userID, storedLevel, currentLevel.Level, currentLevel.Name)
+			if err := c.Send(msg, menu, tele.ModeMarkdown); err != nil {
+				log.Printf("[%d] level up send error: %v", userID, err)
+			}
+		}
+	}
 }
 
 func (b *Bot) maybeUpdateSummary(userID int64) {

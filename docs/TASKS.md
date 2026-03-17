@@ -9,3 +9,5 @@
 - [x] [100%] Task 10: Multi-user dashboard + editable settings + runtime scheduler toggle (2026-03-17)
 - [x] [100%] Bot Lies: daily lie injection + /truth reveal command (2026-03-17)
 - [x] [100%] Silence Mode: /silence command — emoji-only responses for 24h (2026-03-17)
+- [x] [100%] Relationship Levels: 6-уровневая система отношений бот-юзер + /level команда (2026-03-17)
+- [x] [100%] Bot Mirror: /mirror — бот копирует стиль письма пользователя на 10 сообщений (2026-03-17)
