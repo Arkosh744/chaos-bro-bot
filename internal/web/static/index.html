@@ -63,7 +63,7 @@
 
         /* Header */
         .header {
-            padding: 24px 32px;
+            padding: 16px 32px;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -73,6 +73,14 @@
             position: sticky;
             top: 0;
             z-index: 100;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 20px;
         }
 
         .header h1 {
@@ -89,6 +97,109 @@
             font-size: 0.8rem;
             color: var(--text-dim);
             font-family: var(--mono);
+        }
+
+        /* User selector */
+        .user-selector {
+            position: relative;
+        }
+
+        .user-selector-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 14px;
+            background: var(--glass);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .user-selector-btn:hover {
+            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .user-selector-btn .user-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--highlight);
+            flex-shrink: 0;
+        }
+
+        .user-selector-btn .arrow {
+            font-size: 0.6rem;
+            transition: transform 0.2s;
+        }
+
+        .user-selector.open .arrow {
+            transform: rotate(180deg);
+        }
+
+        .user-dropdown {
+            display: none;
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            min-width: 280px;
+            max-height: 320px;
+            overflow-y: auto;
+            background: rgba(13, 13, 26, 0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            z-index: 200;
+            padding: 6px;
+        }
+
+        .user-selector.open .user-dropdown {
+            display: block;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .user-dropdown-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            gap: 12px;
+        }
+
+        .user-dropdown-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .user-dropdown-item.active {
+            background: rgba(233, 69, 96, 0.1);
+            border: 1px solid rgba(233, 69, 96, 0.2);
+        }
+
+        .user-dropdown-item .user-dd-id {
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            color: var(--text-bright);
+        }
+
+        .user-dropdown-item .user-dd-meta {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            text-align: right;
+        }
+
+        .user-dropdown-item .user-dd-owner {
+            font-size: 0.6rem;
+            color: var(--highlight);
+            font-family: var(--mono);
+            font-weight: 600;
         }
 
         /* Navigation */
@@ -248,6 +359,14 @@
                 flex-direction: column;
                 gap: 12px;
                 align-items: flex-start;
+            }
+            .header-left {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            .users-grid {
+                grid-template-columns: 1fr !important;
             }
         }
 
@@ -456,6 +575,15 @@
             background: rgba(233, 69, 96, 0.4);
         }
 
+        .btn-success {
+            background: rgba(0, 214, 143, 0.2);
+            border-color: rgba(0, 214, 143, 0.3);
+        }
+
+        .btn-success:hover {
+            background: rgba(0, 214, 143, 0.4);
+        }
+
         /* Achievements */
         .achievements-grid {
             display: grid;
@@ -635,6 +763,7 @@
             background: var(--glass);
             border: 1px solid var(--border);
             border-radius: var(--radius-sm);
+            gap: 16px;
         }
 
         .setting-label {
@@ -657,12 +786,38 @@
             border-radius: 6px;
         }
 
+        .setting-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .setting-input {
+            width: 60px;
+            padding: 6px 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 0.85rem;
+            outline: none;
+            text-align: center;
+            transition: border-color 0.2s ease;
+        }
+
+        .setting-input:focus {
+            border-color: var(--accent);
+        }
+
         /* Toggle switch */
         .toggle {
             position: relative;
             width: 48px;
             height: 26px;
             cursor: pointer;
+            flex-shrink: 0;
         }
 
         .toggle input {
@@ -791,16 +946,161 @@
             font-size: 0.9rem;
             outline: none;
         }
+
+        /* Users grid */
+        .users-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 16px;
+        }
+
+        .user-card {
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .user-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .user-card.is-owner {
+            border-color: rgba(233, 69, 96, 0.2);
+        }
+
+        .user-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+        }
+
+        .user-card-id {
+            font-family: var(--mono);
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-bright);
+        }
+
+        .user-card-badge {
+            font-size: 0.6rem;
+            font-family: var(--mono);
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            background: rgba(233, 69, 96, 0.15);
+            color: var(--highlight);
+        }
+
+        .user-card-stats {
+            display: flex;
+            gap: 20px;
+        }
+
+        .user-card-stat {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .user-card-stat-value {
+            font-family: var(--mono);
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--text-bright);
+        }
+
+        .user-card-stat-label {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .user-card-last {
+            margin-top: 12px;
+            font-size: 0.75rem;
+            font-family: var(--mono);
+            color: var(--text-dim);
+        }
+
+        .user-card-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 14px;
+        }
+
+        .user-card-actions .btn {
+            padding: 6px 14px;
+            font-size: 0.75rem;
+        }
+
+        /* Save confirmation toast */
+        .toast {
+            position: fixed;
+            bottom: 32px;
+            right: 32px;
+            padding: 14px 24px;
+            background: rgba(0, 214, 143, 0.15);
+            border: 1px solid rgba(0, 214, 143, 0.3);
+            border-radius: var(--radius-sm);
+            color: var(--success);
+            font-family: var(--mono);
+            font-size: 0.85rem;
+            z-index: 1000;
+            backdrop-filter: blur(12px);
+            animation: toastIn 0.3s ease, toastOut 0.3s ease 2s forwards;
+            pointer-events: none;
+        }
+
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes toastOut {
+            from { opacity: 1; transform: translateY(0); }
+            to { opacity: 0; transform: translateY(20px); }
+        }
+
+        /* Current user badge in header */
+        .current-user-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            padding: 4px 0;
+        }
+
+        .current-user-info strong {
+            color: var(--highlight);
+        }
     </style>
 </head>
 <body>
     <div class="header">
-        <div>
-            <h1>Trickster Control Panel</h1>
-            <div class="subtitle">// панель управления хаосом v1.0</div>
+        <div class="header-left">
+            <div>
+                <h1>Trickster Control Panel</h1>
+                <div class="subtitle">// панель управления хаосом v2.0</div>
+                <div class="current-user-info" id="current-user-info"></div>
+            </div>
+            <div class="user-selector" id="user-selector">
+                <button class="user-selector-btn" id="user-selector-btn" onclick="toggleUserDropdown()">
+                    <span class="user-indicator"></span>
+                    <span id="user-selector-label">Загрузка...</span>
+                    <span class="arrow">&#9660;</span>
+                </button>
+                <div class="user-dropdown" id="user-dropdown"></div>
+            </div>
         </div>
         <nav class="nav">
             <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
+            <button class="nav-btn" data-tab="users">Users</button>
             <button class="nav-btn" data-tab="profile">Profile</button>
             <button class="nav-btn" data-tab="achievements">Achievements</button>
             <button class="nav-btn" data-tab="messages">Messages</button>
@@ -844,10 +1144,20 @@
             </div>
         </div>
 
+        <!-- Users -->
+        <div id="tab-users" class="tab-content">
+            <div class="card" style="margin-bottom: 24px;">
+                <div class="card-title">Все пользователи</div>
+                <div id="users-container" class="users-grid">
+                    <div class="loading">Загрузка</div>
+                </div>
+            </div>
+        </div>
+
         <!-- Profile -->
         <div id="tab-profile" class="tab-content">
             <div class="card">
-                <div class="card-title">Досье владельца</div>
+                <div class="card-title">Досье пользователя</div>
                 <div id="facts-container" class="facts-list">
                     <div class="loading">Загрузка</div>
                 </div>
@@ -889,6 +1199,23 @@
     </div>
 
     <script>
+        // Current selected user ID (0 means use server default / ownerID)
+        let currentUserID = 0;
+        let allUsers = [];
+
+        // Build query string with user_id if set
+        function userQuery(extra) {
+            const params = new URLSearchParams();
+            if (currentUserID) params.set('user_id', currentUserID);
+            if (extra) {
+                for (const [k, v] of Object.entries(extra)) {
+                    params.set(k, v);
+                }
+            }
+            const qs = params.toString();
+            return qs ? '?' + qs : '';
+        }
+
         // Tab navigation
         const navBtns = document.querySelectorAll('.nav-btn');
         const tabs = document.querySelectorAll('.tab-content');
@@ -904,6 +1231,86 @@
             });
         });
 
+        // User selector dropdown
+        function toggleUserDropdown() {
+            document.getElementById('user-selector').classList.toggle('open');
+        }
+
+        // Close dropdown on outside click
+        document.addEventListener('click', function(e) {
+            const sel = document.getElementById('user-selector');
+            if (!sel.contains(e.target)) {
+                sel.classList.remove('open');
+            }
+        });
+
+        function selectUser(userID) {
+            currentUserID = userID;
+            document.getElementById('user-selector').classList.remove('open');
+            updateUserSelectorLabel();
+            updateCurrentUserInfo();
+            // Reload current tab
+            const activeBtn = document.querySelector('.nav-btn.active');
+            if (activeBtn) loadTabData(activeBtn.dataset.tab);
+        }
+
+        function updateUserSelectorLabel() {
+            const label = document.getElementById('user-selector-label');
+            if (!currentUserID) {
+                label.textContent = 'Owner (default)';
+            } else {
+                label.textContent = 'ID: ' + currentUserID;
+            }
+            renderUserDropdown();
+        }
+
+        function updateCurrentUserInfo() {
+            const el = document.getElementById('current-user-info');
+            const user = allUsers.find(u => u.user_id === currentUserID);
+            if (user) {
+                el.innerHTML = 'User <strong>' + user.user_id + '</strong> | ' + user.message_count + ' сообщ.';
+            } else if (!currentUserID && allUsers.length > 0) {
+                const owner = allUsers.find(u => u.is_owner);
+                if (owner) {
+                    el.innerHTML = 'Owner <strong>' + owner.user_id + '</strong> | ' + owner.message_count + ' сообщ.';
+                } else {
+                    el.innerHTML = '';
+                }
+            } else {
+                el.innerHTML = '';
+            }
+        }
+
+        function renderUserDropdown() {
+            const dd = document.getElementById('user-dropdown');
+            if (allUsers.length === 0) {
+                dd.innerHTML = '<div style="padding:12px;color:var(--text-dim);font-size:0.8rem;">Нет пользователей</div>';
+                return;
+            }
+            dd.innerHTML = allUsers.map(u => {
+                const isActive = u.user_id === currentUserID || (!currentUserID && u.is_owner);
+                return '<div class="user-dropdown-item ' + (isActive ? 'active' : '') + '" onclick="selectUser(' + u.user_id + ')">' +
+                    '<div>' +
+                        '<div class="user-dd-id">' + u.user_id + '</div>' +
+                        (u.is_owner ? '<div class="user-dd-owner">owner</div>' : '') +
+                    '</div>' +
+                    '<div class="user-dd-meta">' + u.message_count + ' сообщ.<br>' + (u.last_message || '-') + '</div>' +
+                '</div>';
+            }).join('');
+        }
+
+        // Load users list
+        async function loadUsersList() {
+            try {
+                const res = await fetch('/api/users');
+                allUsers = await res.json();
+                updateUserSelectorLabel();
+                updateCurrentUserInfo();
+            } catch (err) {
+                console.error('Users list load error:', err);
+            }
+        }
+
         // Animated counter
         function animateCounter(el, target) {
             const duration = 1000;
@@ -915,7 +1322,7 @@
             function update(now) {
                 const elapsed = now - start;
                 const progress = Math.min(elapsed / duration, 1);
-                const eased = 1 - Math.pow(1 - progress, 3); // ease out cubic
+                const eased = 1 - Math.pow(1 - progress, 3);
                 const current = Math.round(startVal + (target - startVal) * eased);
                 el.textContent = current.toLocaleString('ru-RU');
                 if (progress < 1) requestAnimationFrame(update);
@@ -931,8 +1338,8 @@
         async function loadDashboard() {
             try {
                 const [statsRes, moodRes] = await Promise.all([
-                    fetch('/api/stats'),
-                    fetch('/api/mood?days=30')
+                    fetch('/api/stats' + userQuery()),
+                    fetch('/api/mood' + userQuery({days: 30}))
                 ]);
                 const stats = await statsRes.json();
                 const mood = await moodRes.json();
@@ -1056,10 +1463,61 @@
             container.innerHTML = cellsHtml;
         }
 
+        // Users tab
+        async function loadUsers() {
+            try {
+                const res = await fetch('/api/users');
+                const users = await res.json();
+                allUsers = users;
+                updateUserSelectorLabel();
+                updateCurrentUserInfo();
+                const container = document.getElementById('users-container');
+
+                if (!users || users.length === 0) {
+                    container.innerHTML = '<div class="empty"><div class="empty-icon">&#128100;</div><p>Нет пользователей</p></div>';
+                    return;
+                }
+
+                container.innerHTML = users.map(u =>
+                    '<div class="card user-card ' + (u.is_owner ? 'is-owner' : '') + '">' +
+                        '<div class="user-card-header">' +
+                            '<span class="user-card-id">' + u.user_id + '</span>' +
+                            (u.is_owner ? '<span class="user-card-badge">owner</span>' : '') +
+                        '</div>' +
+                        '<div class="user-card-stats">' +
+                            '<div class="user-card-stat">' +
+                                '<span class="user-card-stat-value">' + u.message_count.toLocaleString('ru-RU') + '</span>' +
+                                '<span class="user-card-stat-label">Сообщений</span>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="user-card-last">Последнее: ' + (u.last_message || '-') + '</div>' +
+                        '<div class="user-card-actions">' +
+                            '<button class="btn" onclick="switchToUserTab(' + u.user_id + ', \'profile\')">Профиль</button>' +
+                            '<button class="btn" onclick="switchToUserTab(' + u.user_id + ', \'messages\')">Сообщения</button>' +
+                            '<button class="btn" onclick="switchToUserTab(' + u.user_id + ', \'dashboard\')">Статистика</button>' +
+                        '</div>' +
+                    '</div>'
+                ).join('');
+            } catch (err) {
+                console.error('Users load error:', err);
+            }
+        }
+
+        function switchToUserTab(userID, tab) {
+            selectUser(userID);
+            // Switch tab
+            navBtns.forEach(b => b.classList.remove('active'));
+            tabs.forEach(t => t.classList.remove('active'));
+            const btn = document.querySelector('.nav-btn[data-tab="' + tab + '"]');
+            if (btn) btn.classList.add('active');
+            document.getElementById('tab-' + tab).classList.add('active');
+            loadTabData(tab);
+        }
+
         // Profile
         async function loadProfile() {
             try {
-                const res = await fetch('/api/profile');
+                const res = await fetch('/api/profile' + userQuery());
                 const facts = await res.json();
                 const container = document.getElementById('facts-container');
 
@@ -1109,7 +1567,7 @@
             if (!value) return;
 
             try {
-                await fetch('/api/profile', {
+                await fetch('/api/profile' + userQuery(), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ category: category, fact: value })
@@ -1122,7 +1580,7 @@
 
         async function deleteFact(category) {
             try {
-                await fetch('/api/profile', {
+                await fetch('/api/profile' + userQuery(), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ category: category, fact: '' })
@@ -1141,7 +1599,7 @@
             if (!category || !fact) return;
 
             try {
-                await fetch('/api/profile', {
+                await fetch('/api/profile' + userQuery(), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ category: category, fact: fact })
@@ -1157,7 +1615,7 @@
         // Achievements
         async function loadAchievements() {
             try {
-                const res = await fetch('/api/achievements');
+                const res = await fetch('/api/achievements' + userQuery());
                 const achievements = await res.json();
                 const container = document.getElementById('achievements-container');
                 const counter = document.getElementById('achievement-counter');
@@ -1189,7 +1647,7 @@
         // Messages
         async function loadMessages() {
             try {
-                const res = await fetch('/api/messages?limit=50');
+                const res = await fetch('/api/messages' + userQuery({limit: 50}));
                 const messages = await res.json();
                 const container = document.getElementById('messages-container');
 
@@ -1225,22 +1683,30 @@
                 container.innerHTML =
                     '<div class="setting-row">' +
                         '<div>' +
-                            '<div class="setting-label"><span class="status-dot ' + (config.scheduler_enabled ? 'on' : 'off') + '"></span>Планировщик</div>' +
+                            '<div class="setting-label"><span class="status-dot ' + (config.scheduler_enabled ? 'on' : 'off') + '" id="sched-status-dot"></span>Планировщик</div>' +
                             '<div class="setting-desc">Автоматические пинги и напоминания</div>' +
                         '</div>' +
-                        '<div class="setting-value">' + (config.scheduler_enabled ? 'Активен' : 'Выключен') + '</div>' +
+                        '<label class="toggle">' +
+                            '<input type="checkbox" id="scheduler-toggle" ' + (config.scheduler_enabled ? 'checked' : '') + ' onchange="toggleScheduler(this.checked)">' +
+                            '<span class="toggle-slider"></span>' +
+                        '</label>' +
                     '</div>' +
                     '<div class="setting-row">' +
                         '<div>' +
                             '<div class="setting-label">Часы пингов</div>' +
                             '<div class="setting-desc">Временной диапазон для автоматических сообщений</div>' +
                         '</div>' +
-                        '<div class="setting-value">' + config.scheduler_min_hour + ':00 — ' + config.scheduler_max_hour + ':00</div>' +
+                        '<div class="setting-controls">' +
+                            '<input type="number" class="setting-input" id="hours-min" value="' + config.scheduler_min_hour + '" min="0" max="23">' +
+                            '<span style="color:var(--text-dim);">—</span>' +
+                            '<input type="number" class="setting-input" id="hours-max" value="' + config.scheduler_max_hour + '" min="0" max="23">' +
+                            '<button class="btn btn-success" onclick="saveHours()">Сохранить</button>' +
+                        '</div>' +
                     '</div>' +
                     '<div class="setting-row">' +
                         '<div>' +
                             '<div class="setting-label">Web-порт</div>' +
-                            '<div class="setting-desc">Порт веб-дашборда</div>' +
+                            '<div class="setting-desc">Порт веб-дашборда (изменение требует перезапуска)</div>' +
                         '</div>' +
                         '<div class="setting-value">:' + config.web_port + '</div>' +
                     '</div>';
@@ -1249,10 +1715,74 @@
             }
         }
 
+        async function toggleScheduler(enabled) {
+            try {
+                const res = await fetch('/api/config/scheduler', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: enabled })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    const dot = document.getElementById('sched-status-dot');
+                    if (dot) {
+                        dot.className = 'status-dot ' + (enabled ? 'on' : 'off');
+                    }
+                    showToast('Планировщик ' + (enabled ? 'включен' : 'выключен'));
+                }
+            } catch (err) {
+                console.error('Toggle scheduler error:', err);
+            }
+        }
+
+        async function saveHours() {
+            const min = parseInt(document.getElementById('hours-min').value);
+            const max = parseInt(document.getElementById('hours-max').value);
+
+            if (isNaN(min) || isNaN(max) || min < 0 || min > 23 || max < 0 || max > 23) {
+                showToast('Часы должны быть от 0 до 23');
+                return;
+            }
+            if (min >= max) {
+                showToast('Минимум должен быть меньше максимума');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/config/hours', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ min_hour: min, max_hour: max })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    showToast('Часы сохранены: ' + min + ':00 — ' + max + ':00');
+                } else if (data.error) {
+                    showToast(data.error);
+                }
+            } catch (err) {
+                console.error('Save hours error:', err);
+            }
+        }
+
+        function showToast(message) {
+            // Remove existing toast
+            const existing = document.querySelector('.toast');
+            if (existing) existing.remove();
+
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            setTimeout(() => { if (toast.parentNode) toast.remove(); }, 2500);
+        }
+
         // Tab data loader
         function loadTabData(tab) {
             switch (tab) {
                 case 'dashboard': loadDashboard(); break;
+                case 'users': loadUsers(); break;
                 case 'profile': loadProfile(); break;
                 case 'achievements': loadAchievements(); break;
                 case 'messages': loadMessages(); break;
@@ -1268,7 +1798,7 @@
         }
 
         // Initial load
-        loadDashboard();
+        loadUsersList().then(() => loadDashboard());
     </script>
 </body>
 </html>

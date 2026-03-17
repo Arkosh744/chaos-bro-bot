@@ -446,6 +446,40 @@ func (s *Storage) DeleteFact(userID int64, category string) error {
 	return err
 }
 
+// UserInfo represents a user with aggregate message stats.
+type UserInfo struct {
+	UserID       int64
+	MessageCount int
+	LastMessage  time.Time
+}
+
+// GetAllUsers returns all users who have sent or received messages, ordered by last activity.
+func (s *Storage) GetAllUsers() ([]UserInfo, error) {
+	rows, err := s.db.Query(`
+		SELECT user_id, COUNT(*) AS msg_count, COALESCE(MAX(created_at), '') AS last_msg
+		FROM messages
+		GROUP BY user_id
+		ORDER BY last_msg DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("get all users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []UserInfo
+	for rows.Next() {
+		var u UserInfo
+		var lastMsg string
+		if err := rows.Scan(&u.UserID, &u.MessageCount, &lastMsg); err != nil {
+			return nil, fmt.Errorf("scan user info: %w", err)
+		}
+		if lastMsg != "" {
+			u.LastMessage, _ = time.Parse("2006-01-02 15:04:05", lastMsg)
+		}
+		users = append(users, u)
+	}
+	return users, nil
+}
+
 func (s *Storage) IncrementCounter(userID int64, name string) (int, error) {
 	_, err := s.db.Exec(`
 		INSERT INTO counters (user_id, name, value) VALUES (?, ?, 1)

@@ -41,6 +41,37 @@ func New(cfg Config, tg *tele.Bot, cl *claude.Client, store *storage.Storage) *S
 	}
 }
 
+// SetEnabled enables or disables the scheduler at runtime.
+func (s *Scheduler) SetEnabled(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.Enabled = enabled
+	log.Printf("Scheduler enabled=%v", enabled)
+}
+
+// IsEnabled returns whether the scheduler is currently enabled.
+func (s *Scheduler) IsEnabled() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.Enabled
+}
+
+// SetHours updates the allowed ping hours at runtime.
+func (s *Scheduler) SetHours(min, max int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.MinHour = min
+	s.cfg.MaxHour = max
+	log.Printf("Scheduler hours updated: %d:00-%d:00", min, max)
+}
+
+// GetConfig returns a copy of the current scheduler configuration.
+func (s *Scheduler) GetConfig() Config {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg
+}
+
 func (s *Scheduler) Start() {
 	if !s.cfg.Enabled || s.cfg.OwnerID == 0 {
 		log.Println("Scheduler disabled")

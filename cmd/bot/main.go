@@ -12,6 +12,7 @@ import (
 	"github.com/Arkosh744/chaos-bro-bot/internal/groq"
 	"github.com/Arkosh744/chaos-bro-bot/internal/scheduler"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
+	"github.com/Arkosh744/chaos-bro-bot/internal/web"
 )
 
 func main() {
@@ -41,7 +42,14 @@ func main() {
 		OwnerID: cfg.Telegram.OwnerID,
 	}
 
-	b, err := bot.New(cfg.Telegram.Token, cfg.Telegram.OwnerID, cl, whisper, store, schedCfg, *cfg)
+	// Start web dashboard early — before Telegram connection, so it works even if TG API is down
+	var webSrv *web.Server
+	if cfg.Web.Enabled {
+		webSrv = web.New(*cfg, store, nil) // scheduler not created yet, will be set later
+		go webSrv.Start()
+	}
+
+	b, err := bot.New(cfg.Telegram.Token, cfg.Telegram.OwnerID, cl, whisper, store, schedCfg, *cfg, webSrv)
 	if err != nil {
 		log.Fatalf("bot init: %v", err)
 	}

@@ -14,6 +14,16 @@ func (s *Server) ownerID() int64 {
 	return s.cfg.Telegram.OwnerID
 }
 
+// getUserID reads user_id from query param or falls back to ownerID.
+func (s *Server) getUserID(r *http.Request) int64 {
+	if raw := r.URL.Query().Get("user_id"); raw != "" {
+		if id, err := strconv.ParseInt(raw, 10, 64); err == nil && id != 0 {
+			return id
+		}
+	}
+	return s.ownerID()
+}
+
 func (s *Server) writeJSON(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(data); err != nil {
@@ -27,9 +37,42 @@ func (s *Server) writeError(w http.ResponseWriter, code int, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
+// handleUsers returns a list of all users with message count and last activity.
+func (s *Server) handleUsers(w http.ResponseWriter, _ *http.Request) {
+	users, err := s.store.GetAllUsers()
+	if err != nil {
+		log.Printf("web: get all users: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "failed to get users")
+		return
+	}
+
+	type userDTO struct {
+		UserID       int64  `json:"user_id"`
+		MessageCount int    `json:"message_count"`
+		LastMessage  string `json:"last_message"`
+		IsOwner      bool   `json:"is_owner"`
+	}
+
+	result := make([]userDTO, 0, len(users))
+	for _, u := range users {
+		var lastMsg string
+		if !u.LastMessage.IsZero() {
+			lastMsg = u.LastMessage.Format("2006-01-02 15:04:05")
+		}
+		result = append(result, userDTO{
+			UserID:       u.UserID,
+			MessageCount: u.MessageCount,
+			LastMessage:  lastMsg,
+			IsOwner:      u.UserID == s.ownerID(),
+		})
+	}
+
+	s.writeJSON(w, result)
+}
+
 // handleStats returns message counts and last activity time.
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
-	uid := s.ownerID()
+	uid := s.getUserID(r)
 
 	total, err := s.store.GetMessageCount(uid)
 	if err != nil {
@@ -81,6 +124,8 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 
 // handleMood returns mood history over the last N days (default 30).
 func (s *Server) handleMood(w http.ResponseWriter, r *http.Request) {
+	uid := s.getUserID(r)
+
 	days := 30
 	if d := r.URL.Query().Get("days"); d != "" {
 		if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 {
@@ -88,7 +133,7 @@ func (s *Server) handleMood(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	entries, err := s.store.GetMoodHistory(s.ownerID(), days)
+	entries, err := s.store.GetMoodHistory(uid, days)
 	if err != nil {
 		log.Printf("web: get mood history: %v", err)
 		s.writeJSON(w, []any{})
@@ -112,7 +157,7 @@ func (s *Server) handleMood(w http.ResponseWriter, r *http.Request) {
 
 // handleProfile handles GET (list facts) and POST (update a fact).
 func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
-	uid := s.ownerID()
+	uid := s.getUserID(r)
 
 	switch r.Method {
 	case http.MethodGet:
@@ -176,7 +221,7 @@ func (s *Server) handleProfile(w http.ResponseWriter, r *http.Request) {
 
 // handleAchievements returns all achievements with their unlock status.
 func (s *Server) handleAchievements(w http.ResponseWriter, r *http.Request) {
-	uid := s.ownerID()
+	uid := s.getUserID(r)
 
 	unlocked, err := s.store.GetAchievements(uid)
 	if err != nil {
@@ -214,6 +259,8 @@ func (s *Server) handleAchievements(w http.ResponseWriter, r *http.Request) {
 
 // handleMessages returns the last N messages (default 50).
 func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
+	uid := s.getUserID(r)
+
 	limit := 50
 	if l := r.URL.Query().Get("limit"); l != "" {
 		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 200 {
@@ -221,7 +268,7 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	msgs, err := s.store.GetLastMessages(s.ownerID(), limit)
+	msgs, err := s.store.GetLastMessages(uid, limit)
 	if err != nil {
 		log.Printf("web: get messages: %v", err)
 		s.writeError(w, http.StatusInternalServerError, "failed to get messages")
@@ -248,26 +295,73 @@ func (s *Server) handleMessages(w http.ResponseWriter, r *http.Request) {
 	s.writeJSON(w, result)
 }
 
-// handleConfig handles GET (current config) and POST (update scheduler settings).
+// handleConfig handles GET for current config (including live scheduler state).
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		s.writeJSON(w, map[string]any{
-			"scheduler_enabled": s.cfg.Scheduler.Enabled,
-			"scheduler_min_hour": s.cfg.Scheduler.MinHour,
-			"scheduler_max_hour": s.cfg.Scheduler.MaxHour,
-			"web_port":           s.cfg.Web.Port,
-		})
-
-	case http.MethodPost:
-		// Config updates are informational only — actual changes require restart.
-		// This endpoint acknowledges the request for UI feedback.
-		s.writeJSON(w, map[string]string{
-			"status":  "ok",
-			"message": "config changes require bot restart",
-		})
-
-	default:
+	if r.Method != http.MethodGet {
 		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
 	}
+
+	schedCfg := s.scheduler.GetConfig()
+	s.writeJSON(w, map[string]any{
+		"scheduler_enabled":  schedCfg.Enabled,
+		"scheduler_min_hour": schedCfg.MinHour,
+		"scheduler_max_hour": schedCfg.MaxHour,
+		"web_port":           s.cfg.Web.Port,
+	})
+}
+
+// handleConfigScheduler toggles the scheduler enabled/disabled at runtime.
+func (s *Server) handleConfigScheduler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		Enabled bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	s.scheduler.SetEnabled(req.Enabled)
+	s.writeJSON(w, map[string]any{
+		"status":  "ok",
+		"enabled": req.Enabled,
+	})
+}
+
+// handleConfigHours updates the scheduler min/max hours at runtime.
+func (s *Server) handleConfigHours(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	var req struct {
+		MinHour int `json:"min_hour"`
+		MaxHour int `json:"max_hour"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+
+	if req.MinHour < 0 || req.MinHour > 23 || req.MaxHour < 0 || req.MaxHour > 23 {
+		s.writeError(w, http.StatusBadRequest, "hours must be between 0 and 23")
+		return
+	}
+	if req.MinHour >= req.MaxHour {
+		s.writeError(w, http.StatusBadRequest, "min_hour must be less than max_hour")
+		return
+	}
+
+	s.scheduler.SetHours(req.MinHour, req.MaxHour)
+	s.writeJSON(w, map[string]any{
+		"status":   "ok",
+		"min_hour": req.MinHour,
+		"max_hour": req.MaxHour,
+	})
 }
