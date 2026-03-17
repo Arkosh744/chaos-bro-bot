@@ -560,6 +560,25 @@ func (s *Storage) GetSilenceRemaining(userID int64) int {
 	return hours
 }
 
+// DecrementCounter decreases a counter by 1. Returns the new value.
+// If the counter is already 0 or doesn't exist, returns 0 without modification.
+func (s *Storage) DecrementCounter(userID int64, name string) (int, error) {
+	val, err := s.GetCounter(userID, name)
+	if err != nil || val <= 0 {
+		return 0, nil
+	}
+
+	newVal := val - 1
+	_, err = s.db.Exec(
+		"UPDATE counters SET value = ? WHERE user_id = ? AND name = ?",
+		newVal, userID, name,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("decrement counter: %w", err)
+	}
+	return newVal, nil
+}
+
 func (s *Storage) IncrementCounter(userID int64, name string) (int, error) {
 	_, err := s.db.Exec(`
 		INSERT INTO counters (user_id, name, value) VALUES (?, ?, 1)
