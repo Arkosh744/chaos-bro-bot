@@ -105,6 +105,26 @@ func (s *Storage) migrate() error {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_reminders_deliver ON reminders(delivered, remind_at);
+		CREATE TABLE IF NOT EXISTS habits (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			active INTEGER NOT NULL DEFAULT 1,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE IF NOT EXISTS habit_logs (
+			habit_id INTEGER NOT NULL,
+			done_date TEXT NOT NULL,
+			PRIMARY KEY (habit_id, done_date)
+		);
+		CREATE TABLE IF NOT EXISTS reflections (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			category TEXT NOT NULL,
+			text TEXT NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_reflections_user ON reflections(user_id, created_at DESC);
 	`)
 	return err
 }
@@ -672,4 +692,244 @@ func (s *Storage) GetDueReminders() ([]Reminder, error) {
 func (s *Storage) MarkReminderDelivered(id int64) error {
 	_, err := s.db.Exec("UPDATE reminders SET delivered = 1 WHERE id = ?", id)
 	return err
+}
+
+// --- Habits ---
+
+type Habit struct {
+	ID        int64
+	UserID    int64
+	Name      string
+	CreatedAt time.Time
+}
+
+func (s *Storage) AddHabit(userID int64, name string) (int64, error) {
+	res, err := s.db.Exec(
+		"INSERT INTO habits (user_id, name) VALUES (?, ?)",
+		userID, name,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("add habit: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+// GetHabits returns all active habits for a user.
+func (s *Storage) GetHabits(userID int64) ([]Habit, error) {
+	rows, err := s.db.Query(
+		"SELECT id, user_id, name, created_at FROM habits WHERE user_id = ? AND active = 1 ORDER BY id",
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get habits: %w", err)
+	}
+	defer rows.Close()
+
+	var habits []Habit
+	for rows.Next() {
+		var h Habit
+		if err := rows.Scan(&h.ID, &h.UserID, &h.Name, &h.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan habit: %w", err)
+		}
+		habits = append(habits, h)
+	}
+	return habits, nil
+}
+
+// DeleteHabit soft-deletes a habit by setting active=0.
+func (s *Storage) DeleteHabit(id int64) error {
+	_, err := s.db.Exec("UPDATE habits SET active = 0 WHERE id = ?", id)
+	return err
+}
+
+// LogHabit marks a habit as done for a given date.
+func (s *Storage) LogHabit(habitID int64, date string) error {
+	_, err := s.db.Exec(
+		"INSERT OR IGNORE INTO habit_logs (habit_id, done_date) VALUES (?, ?)",
+		habitID, date,
+	)
+	return err
+}
+
+// GetHabitLog checks if a habit was done on a given date.
+func (s *Storage) GetHabitLog(habitID int64, date string) (bool, error) {
+	var count int
+	err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM habit_logs WHERE habit_id = ? AND done_date = ?",
+		habitID, date,
+	).Scan(&count)
+	return count > 0, err
+}
+
+// GetHabitStreak counts consecutive days a habit was completed (ending today or yesterday).
+func (s *Storage) GetHabitStreak(habitID int64) (int, error) {
+	today := time.Now()
+	streak := 0
+
+	for i := 0; i < 365; i++ {
+		date := today.AddDate(0, 0, -i).Format("2006-01-02")
+		done, err := s.GetHabitLog(habitID, date)
+		if err != nil {
+			return streak, err
+		}
+		if !done {
+			// Allow skipping today (day not over yet)
+			if i == 0 {
+				continue
+			}
+			break
+		}
+		streak++
+	}
+	return streak, nil
+}
+
+// GetHabitStats returns a map of habitID -> done count for the last N days.
+func (s *Storage) GetHabitStats(userID int64, days int) (map[int64]int, error) {
+	since := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+	rows, err := s.db.Query(`
+		SELECT hl.habit_id, COUNT(*) as cnt
+		FROM habit_logs hl
+		JOIN habits h ON h.id = hl.habit_id
+		WHERE h.user_id = ? AND h.active = 1 AND hl.done_date >= ?
+		GROUP BY hl.habit_id`,
+		userID, since,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get habit stats: %w", err)
+	}
+	defer rows.Close()
+
+	stats := make(map[int64]int)
+	for rows.Next() {
+		var habitID int64
+		var count int
+		if err := rows.Scan(&habitID, &count); err != nil {
+			return nil, fmt.Errorf("scan habit stats: %w", err)
+		}
+		stats[habitID] = count
+	}
+	return stats, nil
+}
+
+// GetAllUsersWithHabits returns distinct user IDs that have active habits.
+func (s *Storage) GetAllUsersWithHabits() ([]int64, error) {
+	rows, err := s.db.Query("SELECT DISTINCT user_id FROM habits WHERE active = 1")
+	if err != nil {
+		return nil, fmt.Errorf("get users with habits: %w", err)
+	}
+	defer rows.Close()
+
+	var userIDs []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan user id: %w", err)
+		}
+		userIDs = append(userIDs, id)
+	}
+	return userIDs, nil
+}
+
+// GetUndoneHabits returns active habits that are NOT done for the given date.
+func (s *Storage) GetUndoneHabits(userID int64, date string) ([]Habit, error) {
+	rows, err := s.db.Query(`
+		SELECT h.id, h.user_id, h.name, h.created_at
+		FROM habits h
+		WHERE h.user_id = ? AND h.active = 1
+			AND h.id NOT IN (SELECT habit_id FROM habit_logs WHERE done_date = ?)
+		ORDER BY h.id`,
+		userID, date,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get undone habits: %w", err)
+	}
+	defer rows.Close()
+
+	var habits []Habit
+	for rows.Next() {
+		var h Habit
+		if err := rows.Scan(&h.ID, &h.UserID, &h.Name, &h.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan undone habit: %w", err)
+		}
+		habits = append(habits, h)
+	}
+	return habits, nil
+}
+
+// --- Sleep tracking ---
+
+// GetFirstAndLastMessageTimes returns the first and last user message times for a given date (YYYY-MM-DD).
+func (s *Storage) GetFirstAndLastMessageTimes(userID int64, date string) (first, last time.Time, err error) {
+	err = s.db.QueryRow(`
+		SELECT MIN(created_at), MAX(created_at)
+		FROM messages
+		WHERE user_id = ? AND role = 'user'
+			AND date(created_at) = ?`,
+		userID, date,
+	).Scan(&first, &last)
+	if err == sql.ErrNoRows {
+		return time.Time{}, time.Time{}, nil
+	}
+	return first, last, err
+}
+
+// GetLateNightMessageCount returns how many days in the last N days the user sent messages after the given hour.
+func (s *Storage) GetLateNightMessageCount(userID int64, days int, afterHour int) (int, error) {
+	since := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+	var count int
+	err := s.db.QueryRow(`
+		SELECT COUNT(DISTINCT date(created_at))
+		FROM messages
+		WHERE user_id = ? AND role = 'user'
+			AND date(created_at) >= ?
+			AND CAST(strftime('%H', created_at) AS INTEGER) >= ?`,
+		userID, since, afterHour,
+	).Scan(&count)
+	return count, err
+}
+
+// --- Reflections ---
+
+// Reflection represents an evening reflection entry.
+type Reflection struct {
+	ID        int64
+	UserID    int64
+	Category  string
+	Text      string
+	CreatedAt time.Time
+}
+
+// SaveReflection stores an evening reflection entry.
+func (s *Storage) SaveReflection(userID int64, category, text string) error {
+	_, err := s.db.Exec(
+		"INSERT INTO reflections (user_id, category, text) VALUES (?, ?, ?)",
+		userID, category, text,
+	)
+	return err
+}
+
+// GetReflections returns reflections for a user from the last N days.
+func (s *Storage) GetReflections(userID int64, days int) ([]Reflection, error) {
+	rows, err := s.db.Query(`
+		SELECT id, user_id, category, text, created_at
+		FROM reflections
+		WHERE user_id = ? AND created_at >= datetime('now', ? || ' days')
+		ORDER BY created_at DESC`,
+		userID, fmt.Sprintf("-%d", days),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get reflections: %w", err)
+	}
+	defer rows.Close()
+
+	var refs []Reflection
+	for rows.Next() {
+		var r Reflection
+		if err := rows.Scan(&r.ID, &r.UserID, &r.Category, &r.Text, &r.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan reflection: %w", err)
+		}
+		refs = append(refs, r)
+	}
+	return refs, nil
 }

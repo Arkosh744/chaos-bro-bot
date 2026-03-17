@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  bot:
+    build: .
+    container_name: trickster-bot
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-11112}:11112"
+    volumes:
+      - ./data:/app/data
+      - ./config.local.yaml:/app/config.local.yaml:ro
+    environment:
+      - TZ=Europe/Moscow
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:11112/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

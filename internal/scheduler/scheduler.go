@@ -85,6 +85,9 @@ func (s *Scheduler) Start() {
 	go s.loop()
 	go s.morningCheckLoop()
 	go s.digestLoop()
+	go s.habitReminderLoop()
+	go s.sleepWarningLoop()
+	go s.eveningCheckLoop()
 }
 
 func (s *Scheduler) Stop() {
@@ -278,6 +281,7 @@ func (s *Scheduler) sendMorningCheck() {
 		return
 	}
 
+	// Message 1: Mood check with inline buttons
 	inline := &tele.ReplyMarkup{}
 	rows := []tele.Row{
 		inline.Row(
@@ -298,20 +302,37 @@ func (s *Scheduler) sendMorningCheck() {
 		log.Printf("morning check send: %v", err)
 	}
 
-	// Daily quest
-	quest, err := s.claude.Ask(context.Background(), features.DailyQuestPrompt, "Дай квест на сегодня")
-	if err == nil && quest != "" {
-		if _, err := s.tg.Send(recipient, "\U0001F4DC Квест дня: "+quest); err != nil {
-			log.Printf("daily quest send: %v", err)
+	// Message 2: Morning ritual package (after 5s delay)
+	time.Sleep(5 * time.Second)
+
+	var profileCtx string
+	if s.store != nil {
+		profile, err := s.store.GetFactsAsText(s.cfg.OwnerID)
+		if err != nil {
+			log.Printf("[%d] morning ritual get profile: %v", s.cfg.OwnerID, err)
 		}
-	} else if err != nil {
-		log.Printf("daily quest generate: %v", err)
+		if profile != "" {
+			profileCtx = profile
+		}
+	}
+	if profileCtx == "" {
+		profileCtx = "Профиль пока не заполнен."
+	}
+
+	prompt := fmt.Sprintf(features.MorningRitualPrompt, profileCtx)
+	ritual, err := s.claude.Ask(context.Background(), prompt, "Утренний пакет")
+	if err != nil {
+		log.Printf("[%d] morning ritual generate: %v", s.cfg.OwnerID, err)
+	} else if ritual != "" {
+		if _, err := s.tg.Send(recipient, ritual); err != nil {
+			log.Printf("[%d] morning ritual send: %v", s.cfg.OwnerID, err)
+		}
 	}
 
 	// Pre-generate daily lie so it doesn't slow down handleText
-	lie, truth, err := features.GenerateLie(context.Background(), s.claude)
-	if err != nil {
-		log.Printf("[%d] pre-generate lie error: %v", s.cfg.OwnerID, err)
+	lie, truth, lErr := features.GenerateLie(context.Background(), s.claude)
+	if lErr != nil {
+		log.Printf("[%d] pre-generate lie error: %v", s.cfg.OwnerID, lErr)
 	} else {
 		today := time.Now().Format("2006-01-02")
 		if err := s.store.SaveLie(s.cfg.OwnerID, lie, truth, today); err != nil {
@@ -319,6 +340,49 @@ func (s *Scheduler) sendMorningCheck() {
 		} else {
 			log.Printf("[%d] daily lie pre-generated", s.cfg.OwnerID)
 		}
+	}
+}
+
+func (s *Scheduler) eveningCheckLoop() {
+	for {
+		now := time.Now()
+		// Next evening check: today or tomorrow at 21:00-21:59
+		next := time.Date(now.Year(), now.Month(), now.Day(), 21, rand.Intn(60), 0, 0, now.Location())
+		if now.Hour() >= 22 || (now.Hour() == 21 && now.After(next)) {
+			// Already past tonight's window, schedule for tomorrow
+			next = next.AddDate(0, 0, 1)
+		}
+
+		log.Printf("Next evening check at %s", next.Format("2006-01-02 15:04"))
+		timer := time.NewTimer(time.Until(next))
+		select {
+		case <-s.stop:
+			timer.Stop()
+			return
+		case <-timer.C:
+			if !s.IsEnabled() {
+				continue
+			}
+			s.sendEveningCheck()
+		}
+	}
+}
+
+func (s *Scheduler) sendEveningCheck() {
+	if s.cfg.OwnerID == 0 {
+		return
+	}
+
+	inline := &tele.ReplyMarkup{}
+	inline.Inline(inline.Row(
+		inline.Data("\U0001F60A Что хорошего", "reflect_good"),
+		inline.Data("\U0001F624 Что бесило", "reflect_bad"),
+		inline.Data("🎯 Что завтра", "reflect_tomorrow"),
+	))
+
+	recipient := &chatRecipient{id: s.cfg.OwnerID}
+	if _, err := s.tg.Send(recipient, "\U0001F319 Вечерний чек. Выбери:", inline); err != nil {
+		log.Printf("evening check send: %v", err)
 	}
 }
 
@@ -408,6 +472,150 @@ func (s *Scheduler) deliverReminders() {
 			log.Printf("reminder mark delivered %d: %v", r.ID, err)
 		}
 		log.Printf("reminder delivered to %d: %.50s", r.UserID, r.Text)
+	}
+}
+
+// habitReminderLoop sends habit reminders 3 times a day (10:00, 14:00, 19:00).
+func (s *Scheduler) habitReminderLoop() {
+	reminderHours := []int{10, 14, 19}
+
+	for {
+		now := time.Now()
+		var nextReminder time.Time
+
+		// Find the next reminder time
+		for _, h := range reminderHours {
+			candidate := time.Date(now.Year(), now.Month(), now.Day(), h, 0, 0, 0, now.Location())
+			if candidate.After(now) {
+				nextReminder = candidate
+				break
+			}
+		}
+		// If all today's times passed, schedule for tomorrow's first
+		if nextReminder.IsZero() {
+			tomorrow := now.AddDate(0, 0, 1)
+			nextReminder = time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), reminderHours[0], 0, 0, 0, now.Location())
+		}
+
+		log.Printf("Next habit reminder at %s", nextReminder.Format("2006-01-02 15:04"))
+		timer := time.NewTimer(time.Until(nextReminder))
+		select {
+		case <-s.stop:
+			timer.Stop()
+			return
+		case <-timer.C:
+			if !s.IsEnabled() {
+				continue
+			}
+			s.sendHabitReminders()
+		}
+	}
+}
+
+func (s *Scheduler) sendHabitReminders() {
+	if s.store == nil {
+		return
+	}
+
+	userIDs, err := s.store.GetAllUsersWithHabits()
+	if err != nil {
+		log.Printf("habit reminder get users: %v", err)
+		return
+	}
+
+	today := time.Now().Format("2006-01-02")
+
+	for _, userID := range userIDs {
+		undone, err := s.store.GetUndoneHabits(userID, today)
+		if err != nil {
+			log.Printf("habit reminder get undone for %d: %v", userID, err)
+			continue
+		}
+		if len(undone) == 0 {
+			continue
+		}
+
+		// Build reminder for each undone habit
+		habits, _ := s.store.GetHabits(userID)
+		for _, uh := range undone {
+			// Find the index number for user-facing display
+			idx := 0
+			for i, h := range habits {
+				if h.ID == uh.ID {
+					idx = i + 1
+					break
+				}
+			}
+			msg := fmt.Sprintf("Эй, ты забыл: %s. Или решил забить? /habit done %d", uh.Name, idx)
+			recipient := &chatRecipient{id: userID}
+			if _, err := s.tg.Send(recipient, msg); err != nil {
+				log.Printf("habit reminder send to %d: %v", userID, err)
+			}
+		}
+	}
+}
+
+// sleepWarningLoop checks weekly at 2:30 AM if user has been up late 3+ times this week.
+func (s *Scheduler) sleepWarningLoop() {
+	for {
+		now := time.Now()
+		// Check at 2:30 AM every day
+		next := time.Date(now.Year(), now.Month(), now.Day(), 2, 30, 0, 0, now.Location())
+		if !next.After(now) {
+			next = next.AddDate(0, 0, 1)
+		}
+
+		timer := time.NewTimer(time.Until(next))
+		select {
+		case <-s.stop:
+			timer.Stop()
+			return
+		case <-timer.C:
+			if !s.IsEnabled() || s.store == nil {
+				continue
+			}
+			s.checkSleepWarnings()
+		}
+	}
+}
+
+func (s *Scheduler) checkSleepWarnings() {
+	userIDs, err := s.store.GetAllUsers()
+	if err != nil {
+		log.Printf("sleep warning get users: %v", err)
+		return
+	}
+
+	now := time.Now()
+	currentHour := now.Format("15:04")
+
+	for _, u := range userIDs {
+		// Check if user sent a message after 2:00 AM today
+		lastTime, err := s.store.LastMessageTime(u.UserID)
+		if err != nil || lastTime.IsZero() {
+			continue
+		}
+
+		// Only warn if last message was recent (within last 30 min) and it's after 2 AM
+		if time.Since(lastTime) > 30*time.Minute {
+			continue
+		}
+
+		// Count late nights this week
+		lateCount, err := s.store.GetLateNightMessageCount(u.UserID, 7, 2)
+		if err != nil {
+			log.Printf("sleep warning late count for %d: %v", u.UserID, err)
+			continue
+		}
+
+		if lateCount >= 3 {
+			msg := fmt.Sprintf("Ты опять не спишь в %s. Третий раз за неделю. Ложись.", currentHour)
+			recipient := &chatRecipient{id: u.UserID}
+			if _, err := s.tg.Send(recipient, msg); err != nil {
+				log.Printf("sleep warning send to %d: %v", u.UserID, err)
+			}
+			log.Printf("sleep warning sent to %d (late %d times this week)", u.UserID, lateCount)
+		}
 	}
 }
 

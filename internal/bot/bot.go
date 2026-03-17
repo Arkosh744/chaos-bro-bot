@@ -47,8 +47,11 @@ var (
 
 var inlineMenu = &tele.ReplyMarkup{}
 var (
-	btnMoreGround = inlineMenu.Data("🔄 Ещё", "more_ground")
-	btnMoreChaos  = inlineMenu.Data("🔄 Другое", "more_chaos")
+	btnMoreGround    = inlineMenu.Data("🔄 Ещё", "more_ground")
+	btnMoreChaos     = inlineMenu.Data("🔄 Другое", "more_chaos")
+	btnReflectGood   = inlineMenu.Data("\U0001F60A Что хорошего", "reflect_good")
+	btnReflectBad    = inlineMenu.Data("\U0001F624 Что бесило", "reflect_bad")
+	btnReflectTmrw   = inlineMenu.Data("🎯 Что завтра", "reflect_tomorrow")
 )
 
 func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperClient, store *storage.Storage, schedCfg scheduler.Config, cfg interface{}, webSrv *web.Server, groupInterjectChance int) (*Bot, error) {
@@ -138,6 +141,11 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle("/remind", b.handleRemind)
 	b.tg.Handle("/streak", b.handleStreak)
 	b.tg.Handle("/trickster", b.handleTricksterIntro)
+	b.tg.Handle("/habit", b.handleHabit)
+	b.tg.Handle("/sleep", b.handleSleep)
+	b.tg.Handle(&btnReflectGood, b.handleReflectGood)
+	b.tg.Handle(&btnReflectBad, b.handleReflectBad)
+	b.tg.Handle(&btnReflectTmrw, b.handleReflectTomorrow)
 	b.tg.Handle(tele.OnPhoto, b.handlePhoto)
 	b.tg.Handle(tele.OnText, b.handleText)
 	b.tg.Handle(tele.OnVoice, b.handleVoice)

@@ -1,0 +1,6 @@
+.git
+*.db
+data/
+docs/
+*.md
+!README.md

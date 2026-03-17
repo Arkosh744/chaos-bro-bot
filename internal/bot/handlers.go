@@ -151,6 +151,8 @@ func (b *Bot) handleHelp(c tele.Context) error {
 /capsule N текст — капсула времени
 /remind 30m текст — напоминание
 /streak — серия дней подряд
+/habit — трекер привычек
+/sleep — анализ сна за неделю
 /help — эта справка
 
 *Просто пиши* — трикстер ответит с характером`
@@ -371,6 +373,29 @@ func (b *Bot) handleText(c tele.Context) error {
 		log.Printf("[%d] save message error: %v", userID, err)
 	}
 
+	// Reflection mode: save reflection if waiting for input
+	if reflectCat, _ := b.store.GetCounter(userID, "reflection_waiting"); reflectCat > 0 {
+		var category string
+		switch reflectCat {
+		case 1:
+			category = "good"
+		case 2:
+			category = "bad"
+		case 3:
+			category = "tomorrow"
+		}
+
+		if err := b.store.SaveReflection(userID, category, text); err != nil {
+			log.Printf("[%d] save reflection error: %v", userID, err)
+		}
+		if err := b.store.SetCounter(userID, "reflection_waiting", 0); err != nil {
+			log.Printf("[%d] reset reflection_waiting error: %v", userID, err)
+		}
+
+		log.Printf("[%d] reflection saved: %s", userID, category)
+		return c.Send("\U0001F4DD Записал. Кабан одобряет. \U0001F417", menu)
+	}
+
 	// Silence mode: respond only with emojis
 	if b.store.IsSilenceMode(userID) {
 		log.Printf("[%d] silence mode active", userID)
@@ -494,6 +519,16 @@ func (b *Bot) handleText(c tele.Context) error {
 			stop()
 			log.Printf("[%d] trickster error: %v", userID, err)
 			return c.Send(features.RandomFallback(), menu)
+		}
+	}
+
+	// Contextual recall: ~15% chance to add a memory reference
+	if features.ShouldRecall() {
+		summary, _, _ := b.store.GetSummary(userID)
+		profile, _ := b.store.GetFactsAsText(userID)
+		recall, recallErr := features.GenerateRecall(context.Background(), b.claude, summary, profile)
+		if recallErr == nil && recall != "" {
+			reply = reply + "\n\n" + recall
 		}
 	}
 
@@ -1096,6 +1131,153 @@ func (b *Bot) handleStreak(c tele.Context) error {
 	return c.Send(fmt.Sprintf("🔥 Твоя серия: %d дней подряд\nРекорд: %d дней", streak, record), menu)
 }
 
+// --- Habit Tracker ---
+
+func (b *Bot) handleHabit(c tele.Context) error {
+	userID := c.Sender().ID
+	payload := c.Message().Payload
+	log.Printf("[%d] /habit: %s", userID, payload)
+
+	today := time.Now().Format("2006-01-02")
+
+	// Default: list
+	if payload == "" || payload == "list" {
+		return b.habitList(c, userID, today)
+	}
+
+	if strings.HasPrefix(payload, "add ") {
+		name := strings.TrimPrefix(payload, "add ")
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return c.Send("Формат: /habit add название привычки", menu)
+		}
+		_, err := b.store.AddHabit(userID, name)
+		if err != nil {
+			log.Printf("[%d] add habit error: %v", userID, err)
+			return c.Send(features.RandomFallback(), menu)
+		}
+		return c.Send("Привычка добавлена. Теперь отмазки не прокатят. /habit done N", menu)
+	}
+
+	if strings.HasPrefix(payload, "done ") {
+		return b.habitDone(c, userID, payload, today)
+	}
+
+	if strings.HasPrefix(payload, "delete ") {
+		return b.habitDelete(c, userID, payload)
+	}
+
+	return c.Send("Непонятно. Попробуй: /habit add, /habit list, /habit done N, /habit delete N", menu)
+}
+
+func (b *Bot) habitList(c tele.Context, userID int64, today string) error {
+	habits, err := b.store.GetHabits(userID)
+	if err != nil {
+		log.Printf("[%d] get habits error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	if len(habits) == 0 {
+		return c.Send("У тебя нет привычек. Добавь: /habit add пить воду", menu)
+	}
+
+	var sb strings.Builder
+	sb.WriteString("📋 Твои привычки:\n\n")
+
+	for i, h := range habits {
+		done, _ := b.store.GetHabitLog(h.ID, today)
+		streak, _ := b.store.GetHabitStreak(h.ID)
+
+		status := "❌"
+		if done {
+			status = "✅"
+		}
+
+		streakStr := ""
+		if streak > 0 {
+			streakStr = fmt.Sprintf(" (streak: %d)", streak)
+		}
+
+		sb.WriteString(fmt.Sprintf("%d. %s %s%s\n", i+1, status, h.Name, streakStr))
+	}
+
+	sb.WriteString("\n/habit done N — отметить\n/habit add — добавить")
+	return c.Send(sb.String(), menu)
+}
+
+func (b *Bot) habitDone(c tele.Context, userID int64, payload, today string) error {
+	numStr := strings.TrimPrefix(payload, "done ")
+	num, err := strconv.Atoi(strings.TrimSpace(numStr))
+	if err != nil || num < 1 {
+		return c.Send("Формат: /habit done N (номер привычки из списка)", menu)
+	}
+
+	habits, err := b.store.GetHabits(userID)
+	if err != nil || num > len(habits) {
+		return c.Send("Привычка не найдена. /habit list", menu)
+	}
+
+	habit := habits[num-1]
+	already, _ := b.store.GetHabitLog(habit.ID, today)
+	if already {
+		return c.Send("Уже отмечено. Молодец, но два раза не считается.", menu)
+	}
+
+	if err := b.store.LogHabit(habit.ID, today); err != nil {
+		log.Printf("[%d] log habit error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	streak, _ := b.store.GetHabitStreak(habit.ID)
+
+	replies := []string{
+		"Красава. Так держать.",
+		"Отмечено. Ты на шаг ближе к нормальному человеку.",
+		"Записал. Завтра тоже не забудь.",
+		"Ладно, засчитано. Но я слежу.",
+		"Готово. Трикстер гордится. Немного.",
+	}
+	reply := replies[rand.Intn(len(replies))]
+	if streak > 1 {
+		reply += fmt.Sprintf(" 🔥 Серия: %d дней.", streak)
+	}
+
+	return c.Send(fmt.Sprintf("✅ %s — %s", habit.Name, reply), menu)
+}
+
+func (b *Bot) habitDelete(c tele.Context, userID int64, payload string) error {
+	numStr := strings.TrimPrefix(payload, "delete ")
+	num, err := strconv.Atoi(strings.TrimSpace(numStr))
+	if err != nil || num < 1 {
+		return c.Send("Формат: /habit delete N (номер привычки из списка)", menu)
+	}
+
+	habits, err := b.store.GetHabits(userID)
+	if err != nil || num > len(habits) {
+		return c.Send("Привычка не найдена. /habit list", menu)
+	}
+
+	habit := habits[num-1]
+	if err := b.store.DeleteHabit(habit.ID); err != nil {
+		log.Printf("[%d] delete habit error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	return c.Send(fmt.Sprintf("Удалено: %s. Одной проблемой меньше.", habit.Name), menu)
+}
+
+// --- Sleep Tracker ---
+
+func (b *Bot) handleSleep(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /sleep", userID)
+
+	days := features.AnalyzeSleep(b.store, userID, 7)
+	report := features.FormatSleepReport(days)
+
+	return c.Send(report, menu)
+}
+
 // --- Group chat ---
 
 // groupInterject sends a random unsolicited comment on a group message.
@@ -1148,4 +1330,39 @@ func (b *Bot) handleTricksterIntro(c tele.Context) error {
 		"Команды работают и тут: /help\n\n" +
 		"Чтобы я мог подслушивать и вставлять комментарии — отключите Group Privacy в @BotFather."
 	return c.Send(intro)
+}
+
+// --- Evening reflection handlers ---
+
+func (b *Bot) handleReflectGood(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] reflect_good", userID)
+
+	if err := b.store.SetCounter(userID, "reflection_waiting", 1); err != nil {
+		log.Printf("[%d] set reflection_waiting error: %v", userID, err)
+	}
+
+	return c.Edit("\U0001F60A Что хорошего сегодня было? Напиши:")
+}
+
+func (b *Bot) handleReflectBad(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] reflect_bad", userID)
+
+	if err := b.store.SetCounter(userID, "reflection_waiting", 2); err != nil {
+		log.Printf("[%d] set reflection_waiting error: %v", userID, err)
+	}
+
+	return c.Edit("\U0001F624 Что бесило сегодня? Выпусти пар:")
+}
+
+func (b *Bot) handleReflectTomorrow(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] reflect_tomorrow", userID)
+
+	if err := b.store.SetCounter(userID, "reflection_waiting", 3); err != nil {
+		log.Printf("[%d] set reflection_waiting error: %v", userID, err)
+	}
+
+	return c.Edit("🎯 Что хочешь сделать завтра? Одну вещь:")
 }

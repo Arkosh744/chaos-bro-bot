@@ -14,3 +14,7 @@
 - [x] [100%] Fix 6 critical issues: blocking sleep, web auth, scheduler toggle, capsule always-on, /help, dead code (2026-03-17)
 - [x] [100%] Web Admin: summary viewer, send messages, scheduler ping button (2026-03-17)
 - [x] [100%] Group chat mode: mention/reply detection, random interject, /trickster intro (2026-03-17)
+- [x] [100%] Wellness: Habit Tracker (/habit add/list/done/delete) + Sleep Tracker (/sleep) + scheduler reminders (2026-03-17)
+- [x] [100%] Recall: contextual memory references (~15% chance) — recall.go + handleText integration (2026-03-17)
+- [x] [100%] Docker: Dockerfile + docker-compose.yml + .dockerignore (2026-03-17)
+- [x] [100%] Morning Ritual + Evening Reflection: утренний пакет (mood+ritual), вечерний рефлекшн с inline кнопками + reflections таблица (2026-03-17)
