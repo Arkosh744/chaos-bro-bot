@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
+	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -76,6 +79,7 @@ func (s *Scheduler) Start() {
 	// Capsule and reminder delivery runs always — user-created items must be delivered regardless of scheduler state
 	go s.capsuleLoop()
 	go s.reminderLoop()
+	go s.backupLoop()
 
 	if !s.cfg.Enabled || s.cfg.OwnerID == 0 {
 		log.Println("Scheduler disabled (capsule delivery still active)")
@@ -635,4 +639,78 @@ func (s *Scheduler) sendDigest() {
 		log.Printf("digest send: %v", err)
 	}
 	log.Printf("weekly digest sent")
+}
+
+const maxBackupFiles = 7
+
+// backupLoop creates a daily database backup at 4:00 AM, keeping the last 7 backups.
+func (s *Scheduler) backupLoop() {
+	if s.store == nil {
+		return
+	}
+
+	for {
+		now := time.Now()
+		next := time.Date(now.Year(), now.Month(), now.Day(), 4, 0, 0, 0, now.Location())
+		if !next.After(now) {
+			next = next.AddDate(0, 0, 1)
+		}
+
+		log.Printf("Next database backup at %s", next.Format("2006-01-02 15:04"))
+		timer := time.NewTimer(time.Until(next))
+		select {
+		case <-s.stop:
+			timer.Stop()
+			return
+		case <-timer.C:
+			s.performBackup()
+		}
+	}
+}
+
+func (s *Scheduler) performBackup() {
+	dbDir := filepath.Dir(s.store.DBPath())
+	backupDir := filepath.Join(dbDir, "data", "backups")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		log.Printf("backup: create dir: %v", err)
+		return
+	}
+
+	filename := fmt.Sprintf("backup_%s.db", time.Now().Format("20060102_150405"))
+	destPath := filepath.Join(backupDir, filename)
+
+	if err := s.store.Backup(destPath); err != nil {
+		log.Printf("backup: %v", err)
+		return
+	}
+	log.Printf("backup: created %s", destPath)
+
+	// Cleanup old backups, keep only the last maxBackupFiles
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		log.Printf("backup: read dir: %v", err)
+		return
+	}
+
+	var backups []string
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".db" {
+			backups = append(backups, e.Name())
+		}
+	}
+
+	if len(backups) <= maxBackupFiles {
+		return
+	}
+
+	sort.Strings(backups) // lexicographic sort works because filenames contain timestamps
+	toDelete := backups[:len(backups)-maxBackupFiles]
+	for _, name := range toDelete {
+		path := filepath.Join(backupDir, name)
+		if err := os.Remove(path); err != nil {
+			log.Printf("backup: remove old %s: %v", name, err)
+		} else {
+			log.Printf("backup: removed old %s", name)
+		}
+	}
 }

@@ -18,3 +18,6 @@
 - [x] [100%] Recall: contextual memory references (~15% chance) — recall.go + handleText integration (2026-03-17)
 - [x] [100%] Docker: Dockerfile + docker-compose.yml + .dockerignore (2026-03-17)
 - [x] [100%] Morning Ritual + Evening Reflection: утренний пакет (mood+ritual), вечерний рефлекшн с inline кнопками + reflections таблица (2026-03-17)
+- [x] [100%] Mini-games: /game — угадай число, правда/действие, данетки, тривиа с inline кнопками (2026-03-17)
+- [x] [100%] Leaderboard (/top) + Streak Rewards (secret commands) + Extended Alter-Egos (4 new) (2026-03-17)
+- [x] [100%] Technical: Graceful Degradation (Claude offline mode) + SQLite Backup (daily + web endpoint) + Rate Limiting (30/hour per user) (2026-03-17)

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -476,4 +478,36 @@ func (s *Server) handleConfigHours(w http.ResponseWriter, r *http.Request) {
 		"min_hour": req.MinHour,
 		"max_hour": req.MaxHour,
 	})
+}
+
+// handleBackup creates a database backup and returns it as a downloadable file.
+func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	// Create backup directory next to the DB file
+	dbDir := filepath.Dir(s.store.DBPath())
+	backupDir := filepath.Join(dbDir, "data", "backups")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		log.Printf("web: create backup dir: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "failed to create backup directory")
+		return
+	}
+
+	filename := fmt.Sprintf("backup_%s.db", time.Now().Format("20060102_150405"))
+	destPath := filepath.Join(backupDir, filename)
+
+	if err := s.store.Backup(destPath); err != nil {
+		log.Printf("web: backup: %v", err)
+		s.writeError(w, http.StatusInternalServerError, "backup failed")
+		return
+	}
+
+	log.Printf("web: backup created: %s", destPath)
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	http.ServeFile(w, r, destPath)
 }

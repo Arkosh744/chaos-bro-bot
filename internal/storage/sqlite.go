@@ -18,7 +18,8 @@ type Message struct {
 }
 
 type Storage struct {
-	db *sql.DB
+	db     *sql.DB
+	dbPath string
 }
 
 func New(dbPath string) (*Storage, error) {
@@ -26,11 +27,25 @@ func New(dbPath string) (*Storage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
-	s := &Storage{db: db}
+	s := &Storage{db: db, dbPath: dbPath}
 	if err := s.migrate(); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return s, nil
+}
+
+// Backup creates a backup of the database at the given path using VACUUM INTO.
+func (s *Storage) Backup(destPath string) error {
+	_, err := s.db.Exec("VACUUM INTO ?", destPath)
+	if err != nil {
+		return fmt.Errorf("vacuum into %s: %w", destPath, err)
+	}
+	return nil
+}
+
+// DBPath returns the path to the database file.
+func (s *Storage) DBPath() string {
+	return s.dbPath
 }
 
 func (s *Storage) Close() error {
@@ -366,6 +381,22 @@ func (s *Storage) GetFacts(userID int64) ([]UserFact, error) {
 		facts = append(facts, f)
 	}
 	return facts, nil
+}
+
+// GetFact returns a single fact value by category. Returns empty string if not found.
+func (s *Storage) GetFact(userID int64, category string) (string, error) {
+	var fact string
+	err := s.db.QueryRow(
+		"SELECT fact FROM user_facts WHERE user_id = ? AND category = ?",
+		userID, category,
+	).Scan(&fact)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get fact: %w", err)
+	}
+	return fact, nil
 }
 
 func (s *Storage) GetFactsAsText(userID int64) (string, error) {

@@ -64,8 +64,12 @@ func (b *Bot) checkAndSendAchievements(c tele.Context, event string) {
 	}
 }
 
-// claudeReply handles the common pattern: start thinking -> call Claude -> handle error -> send reply.
+// claudeReply handles the common pattern: rate limit -> start thinking -> call Claude -> handle error -> send reply.
 func (b *Bot) claudeReply(c tele.Context, ask func() (string, error), prefix string) error {
+	if !b.checkRateLimit(c.Sender().ID) {
+		return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+	}
+
 	replyFn, stop := b.startThinking(c)
 	result, err := ask()
 	if err != nil {
@@ -73,6 +77,7 @@ func (b *Bot) claudeReply(c tele.Context, ask func() (string, error), prefix str
 		log.Printf("[%d] claude error: %v", c.Sender().ID, err)
 		return c.Send(prefix+features.RandomFallback(), menu)
 	}
+	b.incrementRateLimit(c.Sender().ID)
 	return replyFn(prefix+result, menu)
 }
 
@@ -99,6 +104,10 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	userID := c.Sender().ID
 	log.Printf("[%d] photo", userID)
 
+	if !b.checkRateLimit(userID) {
+		return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+	}
+
 	replyFn, stop := b.startThinking(c)
 
 	caption := c.Message().Caption
@@ -114,6 +123,7 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 		log.Printf("[%d] photo reply error: %v", userID, err)
 		return c.Send(features.RandomFallback(), menu)
 	}
+	b.incrementRateLimit(userID)
 
 	if _, err := b.store.SaveMessage(userID, "user", "[\U0001F4F7] "+prompt); err != nil {
 		log.Printf("[%d] save photo msg error: %v", userID, err)
@@ -153,7 +163,13 @@ func (b *Bot) handleHelp(c tele.Context) error {
 /streak — серия дней подряд
 /habit — трекер привычек
 /sleep — анализ сна за неделю
+/game — мини-игры (угадайка, тривиа, данетки)
+/top — таблица лидеров
 /help — эта справка
+
+*Секретные (streak):*
+/roastme — бот roast'ит себя (14д)
+/serious — серьёзный ответ (30д)
 
 *Просто пиши* — трикстер ответит с характером`
 	return c.Send(help, menu, tele.ModeMarkdown)
@@ -220,6 +236,10 @@ func (b *Bot) handleChaos(c tele.Context) error {
 			log.Printf("[%d] save bot message error: %v", userID, err)
 		}
 		return c.Send(reply, menu)
+	}
+
+	if !b.checkRateLimit(userID) {
+		return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
 	}
 
 	reply, stop := b.startThinking(c)
@@ -373,6 +393,11 @@ func (b *Bot) handleText(c tele.Context) error {
 		log.Printf("[%d] save message error: %v", userID, err)
 	}
 
+	// Active game check: dispatch to game handler before main logic
+	if gameType, _ := b.store.GetCounter(userID, "game_active"); gameType > 0 {
+		return b.handleGameInput(c, gameType, text)
+	}
+
 	// Reflection mode: save reflection if waiting for input
 	if reflectCat, _ := b.store.GetCounter(userID, "reflection_waiting"); reflectCat > 0 {
 		var category string
@@ -400,6 +425,10 @@ func (b *Bot) handleText(c tele.Context) error {
 	if b.store.IsSilenceMode(userID) {
 		log.Printf("[%d] silence mode active", userID)
 
+		if !b.checkRateLimit(userID) {
+			return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+		}
+
 		replyFn, stop := b.startThinking(c)
 		reply, err := b.claude.Ask(context.Background(), features.SilencePrompt, text)
 		if err != nil {
@@ -407,6 +436,7 @@ func (b *Bot) handleText(c tele.Context) error {
 			log.Printf("[%d] silence reply error: %v", userID, err)
 			return c.Send("\U0001F636", menu)
 		}
+		b.incrementRateLimit(userID)
 
 		if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
 			log.Printf("[%d] save silence reply error: %v", userID, err)
@@ -418,6 +448,10 @@ func (b *Bot) handleText(c tele.Context) error {
 	// Mirror mode: copy user's writing style
 	if mirrorRemaining, _ := b.store.GetCounter(userID, "mirror_remaining"); mirrorRemaining > 0 {
 		log.Printf("[%d] mirror mode active, remaining: %d", userID, mirrorRemaining)
+
+		if !b.checkRateLimit(userID) {
+			return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+		}
 
 		newVal, err := b.store.DecrementCounter(userID, "mirror_remaining")
 		if err != nil {
@@ -445,6 +479,7 @@ func (b *Bot) handleText(c tele.Context) error {
 			log.Printf("[%d] mirror reply error: %v", userID, err)
 			return c.Send(features.RandomFallback(), menu)
 		}
+		b.incrementRateLimit(userID)
 
 		if newVal == 0 {
 			reply = reply + "\n\n\U0001FA9E Зеркало выключено. Я снова я."
@@ -489,6 +524,11 @@ func (b *Bot) handleText(c tele.Context) error {
 		return c.Send(offended, menu)
 	}
 
+	// Rate limit: max Claude calls per hour per user
+	if !b.checkRateLimit(userID) {
+		return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+	}
+
 	// Bargain: 20% chance bot demands something before answering
 	if rand.Intn(5) == 0 {
 		bargain := features.Bargains[rand.Intn(len(features.Bargains))]
@@ -521,6 +561,7 @@ func (b *Bot) handleText(c tele.Context) error {
 			return c.Send(features.RandomFallback(), menu)
 		}
 	}
+	b.incrementRateLimit(userID)
 
 	// Contextual recall: ~15% chance to add a memory reference
 	if features.ShouldRecall() {
@@ -598,6 +639,10 @@ func (b *Bot) handleVoice(c tele.Context) error {
 		return c.Send("Голосовые не настроены. Нужен Groq API ключ.", menu)
 	}
 
+	if !b.checkRateLimit(userID) {
+		return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+	}
+
 	voice := c.Message().Voice
 	if voice == nil {
 		return nil
@@ -648,6 +693,7 @@ func (b *Bot) handleVoice(c tele.Context) error {
 		log.Printf("[%d] trickster error: %v", userID, err)
 		return c.Send(features.RandomFallback(), menu)
 	}
+	b.incrementRateLimit(userID)
 
 	if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
 		log.Printf("[%d] save bot reply error: %v", userID, err)
@@ -1099,18 +1145,9 @@ func (b *Bot) checkStreak(c tele.Context) {
 		}
 	}
 
-	// Milestone celebrations
-	var milestone string
-	switch streak {
-	case 7:
-		milestone = "🔥 7 дней подряд! Неделя с трикстером. Ты либо упорный, либо зависимый."
-	case 30:
-		milestone = "🔥🔥 30 дней подряд! Месяц! Ты точно в курсе что у тебя есть друзья из мяса?"
-	case 100:
-		milestone = "🔥🔥🔥 100 ДНЕЙ ПОДРЯД! Легенда. Я тебя уважаю. Серьёзно."
-	}
-
-	if milestone != "" {
+	// Check for streak reward milestones
+	if reward := features.GetStreakReward(streak); reward != nil {
+		milestone := fmt.Sprintf("%s %s", reward.Emoji, reward.Message)
 		if err := c.Send(milestone, menu); err != nil {
 			log.Printf("[%d] streak milestone send error: %v", userID, err)
 		}
@@ -1330,6 +1367,127 @@ func (b *Bot) handleTricksterIntro(c tele.Context) error {
 		"Команды работают и тут: /help\n\n" +
 		"Чтобы я мог подслушивать и вставлять комментарии — отключите Group Privacy в @BotFather."
 	return c.Send(intro)
+}
+
+// --- Leaderboard ---
+
+func (b *Bot) handleTop(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /top", userID)
+
+	users, err := b.store.GetAllUsers()
+	if err != nil {
+		log.Printf("[%d] get all users error: %v", userID, err)
+		return c.Send(features.RandomFallback(), b.replyOpts(c))
+	}
+
+	if len(users) == 0 {
+		return c.Send("Пока никого нет. Ты будешь первым.", b.replyOpts(c))
+	}
+
+	// Sort by message count descending
+	sortedUsers := make([]storage.UserInfo, len(users))
+	copy(sortedUsers, users)
+	for i := 0; i < len(sortedUsers); i++ {
+		for j := i + 1; j < len(sortedUsers); j++ {
+			if sortedUsers[j].MessageCount > sortedUsers[i].MessageCount {
+				sortedUsers[i], sortedUsers[j] = sortedUsers[j], sortedUsers[i]
+			}
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("🏆 Топ:\n\n")
+
+	limit := 10
+	if len(sortedUsers) < limit {
+		limit = len(sortedUsers)
+	}
+
+	for i := 0; i < limit; i++ {
+		u := sortedUsers[i]
+		name := u.FirstName
+		if name == "" {
+			name = u.Username
+		}
+		if name == "" {
+			name = fmt.Sprintf("User %d", u.UserID)
+		}
+
+		level := features.GetLevel(u.MessageCount)
+
+		prefix := ""
+		if i == 0 {
+			prefix = "👑 "
+		}
+
+		sb.WriteString(fmt.Sprintf("%d. %s%s — %d сообщ. (%s)\n", i+1, prefix, name, u.MessageCount, level.Name))
+	}
+
+	// Find current user's rank
+	userRank := 0
+	for i, u := range sortedUsers {
+		if u.UserID == userID {
+			userRank = i + 1
+			break
+		}
+	}
+
+	if userRank > 0 {
+		sb.WriteString(fmt.Sprintf("\nТы: #%d из %d", userRank, len(sortedUsers)))
+	}
+
+	return c.Send(sb.String(), b.replyOpts(c))
+}
+
+// --- Secret commands (streak rewards) ---
+
+func (b *Bot) handleRoastMe(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /roastme", userID)
+
+	streak, _ := b.store.GetCounter(userID, "streak_days")
+	if streak < 14 {
+		return c.Send("Эта команда разблокируется на 14-дневном streak. У тебя: "+strconv.Itoa(streak), b.replyOpts(c))
+	}
+
+	return b.claudeReply(c, func() (string, error) {
+		return b.claude.Ask(context.Background(), "Ты бот-трикстер. Зароасти СЕБЯ. Жёстко, смешно, 2-3 предложения. На русском.", "Зароасть себя")
+	}, "🤡 ")
+}
+
+func (b *Bot) handleSerious(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /serious", userID)
+
+	streak, _ := b.store.GetCounter(userID, "streak_days")
+	if streak < 30 {
+		return c.Send("Эта команда разблокируется на 30-дневном streak. У тебя: "+strconv.Itoa(streak), b.replyOpts(c))
+	}
+
+	// Check if already used today
+	today := time.Now().Format("2006-01-02")
+	key := "serious_" + today
+	used, _ := b.store.GetCounter(userID, key)
+	if used > 0 {
+		return c.Send("Серьёзный режим уже использован сегодня. Завтра будет ещё один шанс.", b.replyOpts(c))
+	}
+
+	// Mark as used
+	if err := b.store.SetCounter(userID, key, 1); err != nil {
+		log.Printf("[%d] set serious counter error: %v", userID, err)
+	}
+
+	payload := c.Message().Payload
+	if payload == "" {
+		payload = "Скажи что-нибудь серьёзное и мудрое"
+	}
+
+	return b.claudeReply(c, func() (string, error) {
+		return b.claude.Ask(context.Background(),
+			"Ты мудрый, серьёзный собеседник. Без сарказма, без шуток. Отвечай вдумчиво, по-человечески, с эмпатией. На русском. 2-4 предложения.",
+			payload)
+	}, "🎩 ")
 }
 
 // --- Evening reflection handlers ---

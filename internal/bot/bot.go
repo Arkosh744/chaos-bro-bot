@@ -143,9 +143,27 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle("/trickster", b.handleTricksterIntro)
 	b.tg.Handle("/habit", b.handleHabit)
 	b.tg.Handle("/sleep", b.handleSleep)
+	b.tg.Handle("/top", b.handleTop)
+	b.tg.Handle("/roastme", b.handleRoastMe)
+	b.tg.Handle("/serious", b.handleSerious)
 	b.tg.Handle(&btnReflectGood, b.handleReflectGood)
 	b.tg.Handle(&btnReflectBad, b.handleReflectBad)
 	b.tg.Handle(&btnReflectTmrw, b.handleReflectTomorrow)
+	// Games
+	b.tg.Handle("/game", b.handleGame)
+	b.tg.Handle(&tele.InlineButton{Unique: "game_guess"}, b.handleStartGuess)
+	b.tg.Handle(&tele.InlineButton{Unique: "game_td"}, b.handleStartTruthDare)
+	b.tg.Handle(&tele.InlineButton{Unique: "game_danetki"}, b.handleStartDanetki)
+	b.tg.Handle(&tele.InlineButton{Unique: "game_trivia"}, b.handleStartTrivia)
+	b.tg.Handle(&tele.InlineButton{Unique: "td_truth"}, b.handleTruthChoice)
+	b.tg.Handle(&tele.InlineButton{Unique: "td_dare"}, b.handleDareChoice)
+	for _, letter := range []string{"A", "B", "C", "D"} {
+		l := letter
+		b.tg.Handle(&tele.InlineButton{Unique: "trivia_" + l}, func(c tele.Context) error {
+			return b.handleTriviaAnswer(c, l)
+		})
+	}
+
 	b.tg.Handle(tele.OnPhoto, b.handlePhoto)
 	b.tg.Handle(tele.OnText, b.handleText)
 	b.tg.Handle(tele.OnVoice, b.handleVoice)
