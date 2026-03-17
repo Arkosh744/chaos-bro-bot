@@ -670,82 +670,222 @@
             font-size: 1.4rem;
         }
 
-        /* Messages */
-        .messages-list {
+        /* Chat container */
+        .chat-container {
             display: flex;
             flex-direction: column;
-            gap: 4px;
-            max-height: 70vh;
+            gap: 8px;
+            max-height: 65vh;
             overflow-y: auto;
-            padding-right: 8px;
+            padding: 16px;
+            scroll-behavior: smooth;
         }
 
-        .messages-list::-webkit-scrollbar {
+        .chat-container::-webkit-scrollbar {
             width: 4px;
         }
 
-        .messages-list::-webkit-scrollbar-track {
+        .chat-container::-webkit-scrollbar-track {
             background: transparent;
         }
 
-        .messages-list::-webkit-scrollbar-thumb {
+        .chat-container::-webkit-scrollbar-thumb {
             background: var(--border);
             border-radius: 2px;
         }
 
-        .message {
-            padding: 10px 14px;
-            border-radius: var(--radius-sm);
-            border-left: 3px solid transparent;
-            transition: background 0.2s ease;
+        .chat-bubble {
+            max-width: 75%;
+            padding: 12px 16px;
+            border-radius: 16px;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            word-break: break-word;
+            position: relative;
+            animation: fadeIn 0.3s ease;
         }
 
-        .message:hover {
-            background: var(--glass);
+        .chat-bubble.user {
+            align-self: flex-end;
+            background: rgba(79, 195, 247, 0.15);
+            border: 1px solid rgba(79, 195, 247, 0.2);
+            border-bottom-right-radius: 4px;
         }
 
-        .message.role-user {
-            border-left-color: #4fc3f7;
+        .chat-bubble.bot {
+            align-self: flex-start;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-bottom-left-radius: 4px;
         }
 
-        .message.role-bot {
-            border-left-color: var(--highlight);
-        }
-
-        .message-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 4px;
-        }
-
-        .message-role {
+        .chat-time {
             font-family: var(--mono);
-            font-size: 0.7rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
+            font-size: 0.6rem;
+            color: var(--text-dim);
+            margin-top: 2px;
         }
 
-        .message.role-user .message-role {
-            color: #4fc3f7;
-        }
+        .chat-bubble.user .chat-time { text-align: right; }
+        .chat-bubble.bot .chat-time { text-align: left; }
 
-        .message.role-bot .message-role {
-            color: var(--highlight);
-        }
-
-        .message-time {
+        .chat-date-separator {
+            text-align: center;
             font-family: var(--mono);
             font-size: 0.65rem;
             color: var(--text-dim);
+            padding: 8px 0;
+            position: relative;
         }
 
-        .message-text {
-            font-size: 0.85rem;
-            line-height: 1.5;
+        .chat-date-separator::before,
+        .chat-date-separator::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: calc(50% - 60px);
+            height: 1px;
+            background: var(--border);
+        }
+
+        .chat-date-separator::before { left: 0; }
+        .chat-date-separator::after { right: 0; }
+
+        .chat-load-more {
+            align-self: center;
+            padding: 6px 16px;
+            background: var(--glass);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            color: var(--text-dim);
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .chat-load-more:hover {
+            background: rgba(255, 255, 255, 0.06);
             color: var(--text);
-            word-break: break-word;
+            border-color: rgba(255, 255, 255, 0.12);
+        }
+
+        .msg-count-selector {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .msg-count-btn {
+            padding: 4px 12px;
+            background: var(--glass);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-dim);
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .msg-count-btn:hover {
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text);
+        }
+
+        .msg-count-btn.active {
+            background: var(--accent);
+            color: var(--text-bright);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Prompts */
+        .prompts-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .prompt-item {
+            background: var(--glass);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 16px;
+            transition: all 0.2s ease;
+        }
+
+        .prompt-item:hover {
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .prompt-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .prompt-name {
+            font-family: var(--mono);
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--highlight);
+        }
+
+        .prompt-badge {
+            font-size: 0.6rem;
+            font-family: var(--mono);
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .prompt-badge.default {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-dim);
+        }
+
+        .prompt-badge.overridden {
+            background: rgba(79, 195, 247, 0.15);
+            color: #4fc3f7;
+        }
+
+        .prompt-preview {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            line-height: 1.5;
+            overflow: hidden;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            margin-bottom: 10px;
+        }
+
+        .prompt-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .prompt-editor {
+            width: 100%;
+            min-height: 200px;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--accent);
+            border-radius: var(--radius-sm);
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            line-height: 1.5;
+            outline: none;
+            resize: vertical;
+            margin-bottom: 10px;
+        }
+
+        .prompt-editor:focus {
+            border-color: var(--highlight);
         }
 
         /* Settings */
@@ -1104,6 +1244,7 @@
             <button class="nav-btn" data-tab="profile">Profile</button>
             <button class="nav-btn" data-tab="achievements">Achievements</button>
             <button class="nav-btn" data-tab="messages">Messages</button>
+            <button class="nav-btn" data-tab="prompts">Prompts</button>
             <button class="nav-btn" data-tab="settings">Settings</button>
         </nav>
     </div>
@@ -1186,13 +1327,31 @@
         <!-- Messages -->
         <div id="tab-messages" class="tab-content">
             <div class="card">
-                <div class="card-title">Последние сообщения</div>
-                <div id="messages-container" class="messages-list">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                    <div class="card-title" style="margin-bottom:0;">Диалог</div>
+                    <div class="msg-count-selector">
+                        <span style="font-size:0.7rem;color:var(--text-dim);font-family:var(--mono);">Показать:</span>
+                        <button class="msg-count-btn active" data-count="50" onclick="setMessageCount(50, this)">50</button>
+                        <button class="msg-count-btn" data-count="100" onclick="setMessageCount(100, this)">100</button>
+                        <button class="msg-count-btn" data-count="200" onclick="setMessageCount(200, this)">200</button>
+                    </div>
+                </div>
+                <div id="messages-container" class="chat-container">
                     <div class="loading">Загрузка</div>
                 </div>
                 <div class="send-message-form" style="display:flex;gap:8px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
                     <input type="text" id="send-msg-input" placeholder="Отправить сообщение..." onkeydown="if(event.key==='Enter')sendMessage()" style="flex:1;padding:10px 14px;background:var(--glass);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-family:var(--sans);font-size:0.85rem;outline:none;">
                     <button class="btn" onclick="sendMessage()">Отправить</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Prompts -->
+        <div id="tab-prompts" class="tab-content">
+            <div class="card">
+                <div class="card-title">Системные промпты</div>
+                <div id="prompts-container" class="prompts-list">
+                    <div class="loading">Загрузка</div>
                 </div>
             </div>
         </div>
@@ -1659,9 +1818,18 @@
         }
 
         // Messages
+        let currentMessageLimit = 50;
+
+        function setMessageCount(count, btn) {
+            currentMessageLimit = count;
+            document.querySelectorAll('.msg-count-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            loadMessages();
+        }
+
         async function loadMessages() {
             try {
-                const res = await fetch('/api/messages' + userQuery({limit: 50}));
+                const res = await fetch('/api/messages' + userQuery({limit: currentMessageLimit}));
                 const messages = await res.json();
                 const container = document.getElementById('messages-container');
 
@@ -1670,21 +1838,50 @@
                     return;
                 }
 
-                container.innerHTML = messages.map(m =>
-                    '<div class="message role-' + m.role + '">' +
-                        '<div class="message-header">' +
-                            '<span class="message-role">' + (m.role === 'user' ? 'user' : 'bot') + '</span>' +
-                            '<span class="message-time">' + m.created_at + '</span>' +
-                        '</div>' +
-                        '<div class="message-text">' + escapeHtml(m.text) + '</div>' +
-                    '</div>'
-                ).join('');
+                let html = '';
+                let lastDate = '';
 
-                // Scroll to bottom
-                container.scrollTop = container.scrollHeight;
+                for (const m of messages) {
+                    // Date separator
+                    const msgDate = m.created_at.split(' ')[0];
+                    if (msgDate !== lastDate) {
+                        lastDate = msgDate;
+                        html += '<div class="chat-date-separator">' + formatChatDate(msgDate) + '</div>';
+                    }
+
+                    const timeOnly = m.created_at.split(' ')[1] || m.created_at;
+                    const bubbleClass = m.role === 'user' ? 'user' : 'bot';
+
+                    html += '<div class="chat-bubble ' + bubbleClass + '">' +
+                        '<div>' + escapeHtml(m.text) + '</div>' +
+                        '<div class="chat-time">' + timeOnly + '</div>' +
+                    '</div>';
+                }
+
+                container.innerHTML = html;
+
+                // Smooth scroll to bottom
+                requestAnimationFrame(() => {
+                    container.scrollTop = container.scrollHeight;
+                });
             } catch (err) {
                 console.error('Messages load error:', err);
             }
+        }
+
+        function formatChatDate(dateStr) {
+            const today = new Date();
+            const date = new Date(dateStr);
+            const todayStr = today.toISOString().split('T')[0];
+            const yesterday = new Date(today);
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+            if (dateStr === todayStr) return 'Сегодня';
+            if (dateStr === yesterdayStr) return 'Вчера';
+
+            const months = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+            return date.getDate() + ' ' + months[date.getMonth()] + ' ' + date.getFullYear();
         }
 
         // Settings
@@ -1869,6 +2066,122 @@
             }
         }
 
+        // Prompts
+        let allPromptsData = [];
+
+        async function loadPrompts() {
+            try {
+                const res = await fetch('/api/prompts');
+                allPromptsData = await res.json();
+                const container = document.getElementById('prompts-container');
+
+                if (!allPromptsData || allPromptsData.length === 0) {
+                    container.innerHTML = '<div class="empty"><div class="empty-icon">&#128221;</div><p>Нет промптов</p></div>';
+                    return;
+                }
+
+                container.innerHTML = allPromptsData.map((p, idx) => {
+                    const hasOverride = p.override && p.override.length > 0;
+                    const currentValue = hasOverride ? p.override : p.default_value;
+                    const truncated = currentValue.length > 200 ? currentValue.substring(0, 200) + '...' : currentValue;
+
+                    return '<div class="prompt-item" id="prompt-item-' + idx + '">' +
+                        '<div class="prompt-header">' +
+                            '<span class="prompt-name">' + escapeHtml(p.name) + '</span>' +
+                            '<span class="prompt-badge ' + (hasOverride ? 'overridden' : 'default') + '">' +
+                                (hasOverride ? 'override' : 'default') +
+                            '</span>' +
+                        '</div>' +
+                        '<div class="prompt-preview" id="prompt-preview-' + idx + '">' + escapeHtml(truncated) + '</div>' +
+                        '<div class="prompt-actions" id="prompt-actions-' + idx + '">' +
+                            '<button class="btn" onclick="editPrompt(' + idx + ')">Редактировать</button>' +
+                            (hasOverride ? '<button class="btn btn-danger" onclick="resetPrompt(' + idx + ')">Сброс</button>' : '') +
+                        '</div>' +
+                    '</div>';
+                }).join('');
+            } catch (err) {
+                console.error('Prompts load error:', err);
+            }
+        }
+
+        function editPrompt(idx) {
+            const p = allPromptsData[idx];
+            const item = document.getElementById('prompt-item-' + idx);
+            const preview = document.getElementById('prompt-preview-' + idx);
+            const actions = document.getElementById('prompt-actions-' + idx);
+            const hasOverride = p.override && p.override.length > 0;
+            const currentValue = hasOverride ? p.override : p.default_value;
+
+            preview.style.display = 'none';
+            preview.insertAdjacentHTML('afterend',
+                '<textarea class="prompt-editor" id="prompt-editor-' + idx + '">' + escapeHtml(currentValue) + '</textarea>'
+            );
+
+            actions.innerHTML =
+                '<button class="btn btn-success" onclick="savePrompt(' + idx + ')">Сохранить</button>' +
+                '<button class="btn" onclick="cancelEditPrompt(' + idx + ')">Отмена</button>' +
+                (hasOverride ? '<button class="btn btn-danger" onclick="resetPrompt(' + idx + ')">Сброс</button>' : '');
+
+            const editor = document.getElementById('prompt-editor-' + idx);
+            editor.focus();
+            editor.setSelectionRange(editor.value.length, editor.value.length);
+        }
+
+        function cancelEditPrompt(idx) {
+            const editor = document.getElementById('prompt-editor-' + idx);
+            if (editor) editor.remove();
+            const preview = document.getElementById('prompt-preview-' + idx);
+            preview.style.display = '';
+            // Restore actions
+            loadPrompts();
+        }
+
+        async function savePrompt(idx) {
+            const p = allPromptsData[idx];
+            const editor = document.getElementById('prompt-editor-' + idx);
+            const value = editor.value.trim();
+            if (!value) return;
+
+            try {
+                const res = await fetch('/api/prompts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: p.name, value: value })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    showToast('Промпт "' + p.name + '" сохранён');
+                    loadPrompts();
+                } else if (data.error) {
+                    showToast(data.error);
+                }
+            } catch (err) {
+                console.error('Save prompt error:', err);
+                showToast('Ошибка сохранения');
+            }
+        }
+
+        async function resetPrompt(idx) {
+            const p = allPromptsData[idx];
+            try {
+                const res = await fetch('/api/prompts', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: p.name, delete: true })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    showToast('Промпт "' + p.name + '" сброшен к дефолту');
+                    loadPrompts();
+                } else if (data.error) {
+                    showToast(data.error);
+                }
+            } catch (err) {
+                console.error('Reset prompt error:', err);
+                showToast('Ошибка сброса');
+            }
+        }
+
         // Tab data loader
         function loadTabData(tab) {
             switch (tab) {
@@ -1877,6 +2190,7 @@
                 case 'profile': loadProfile(); break;
                 case 'achievements': loadAchievements(); break;
                 case 'messages': loadMessages(); break;
+                case 'prompts': loadPrompts(); break;
                 case 'settings': loadSettings(); break;
             }
         }

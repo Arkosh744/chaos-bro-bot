@@ -140,6 +140,11 @@ func (s *Storage) migrate() error {
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_reflections_user ON reflections(user_id, created_at DESC);
+		CREATE TABLE IF NOT EXISTS prompt_overrides (
+			name TEXT PRIMARY KEY,
+			value TEXT NOT NULL,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
 	`)
 	return err
 }
@@ -963,4 +968,65 @@ func (s *Storage) GetReflections(userID int64, days int) ([]Reflection, error) {
 		refs = append(refs, r)
 	}
 	return refs, nil
+}
+
+// --- Prompt Overrides ---
+
+// GetPromptOverride returns the override value for a prompt name, or empty string if not found.
+func (s *Storage) GetPromptOverride(name string) (string, error) {
+	var value string
+	err := s.db.QueryRow(
+		"SELECT value FROM prompt_overrides WHERE name = ?", name,
+	).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get prompt override %s: %w", name, err)
+	}
+	return value, nil
+}
+
+// SavePromptOverride upserts a prompt override value.
+func (s *Storage) SavePromptOverride(name, value string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO prompt_overrides (name, value, updated_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(name) DO UPDATE SET
+			value = excluded.value,
+			updated_at = excluded.updated_at`,
+		name, value,
+	)
+	if err != nil {
+		return fmt.Errorf("save prompt override %s: %w", name, err)
+	}
+	return nil
+}
+
+// GetAllPromptOverrides returns all prompt overrides as a map.
+func (s *Storage) GetAllPromptOverrides() (map[string]string, error) {
+	rows, err := s.db.Query("SELECT name, value FROM prompt_overrides")
+	if err != nil {
+		return nil, fmt.Errorf("get all prompt overrides: %w", err)
+	}
+	defer rows.Close()
+
+	overrides := make(map[string]string)
+	for rows.Next() {
+		var name, value string
+		if err := rows.Scan(&name, &value); err != nil {
+			return nil, fmt.Errorf("scan prompt override: %w", err)
+		}
+		overrides[name] = value
+	}
+	return overrides, nil
+}
+
+// DeletePromptOverride removes a prompt override, restoring the default.
+func (s *Storage) DeletePromptOverride(name string) error {
+	_, err := s.db.Exec("DELETE FROM prompt_overrides WHERE name = ?", name)
+	if err != nil {
+		return fmt.Errorf("delete prompt override %s: %w", name, err)
+	}
+	return nil
 }

@@ -81,6 +81,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/send", s.authAPI(s.handleSend))
 	s.mux.HandleFunc("/api/scheduler/ping", s.authAPI(s.handleSchedulerPing))
 	s.mux.HandleFunc("/api/backup", s.authAPI(s.handleBackup))
+	s.mux.HandleFunc("/api/prompts", s.authAPI(s.handlePrompts))
 
 	// Static files — protected by auth middleware (cookie or query param)
 	staticFS, err := fs.Sub(staticFiles, "static")

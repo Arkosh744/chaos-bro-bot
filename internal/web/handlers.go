@@ -480,6 +480,75 @@ func (s *Server) handleConfigHours(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handlePrompts handles GET (list all prompts) and POST (save/delete override).
+func (s *Server) handlePrompts(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		overrides, err := s.store.GetAllPromptOverrides()
+		if err != nil {
+			log.Printf("web: get prompt overrides: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "failed to get prompt overrides")
+			return
+		}
+
+		allPrompts := features.AllPrompts()
+
+		type promptDTO struct {
+			Name         string `json:"name"`
+			DefaultValue string `json:"default_value"`
+			Override     string `json:"override"`
+		}
+
+		result := make([]promptDTO, 0, len(allPrompts))
+		for _, p := range allPrompts {
+			result = append(result, promptDTO{
+				Name:         p.Name,
+				DefaultValue: p.DefaultValue,
+				Override:     overrides[p.Name],
+			})
+		}
+		s.writeJSON(w, result)
+
+	case http.MethodPost:
+		var req struct {
+			Name   string `json:"name"`
+			Value  string `json:"value"`
+			Delete bool   `json:"delete"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		if req.Name == "" {
+			s.writeError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+
+		if req.Delete {
+			if err := s.store.DeletePromptOverride(req.Name); err != nil {
+				log.Printf("web: delete prompt override: %v", err)
+				s.writeError(w, http.StatusInternalServerError, "failed to delete prompt override")
+				return
+			}
+		} else {
+			if req.Value == "" {
+				s.writeError(w, http.StatusBadRequest, "value is required")
+				return
+			}
+			if err := s.store.SavePromptOverride(req.Name, req.Value); err != nil {
+				log.Printf("web: save prompt override: %v", err)
+				s.writeError(w, http.StatusInternalServerError, "failed to save prompt override")
+				return
+			}
+		}
+
+		s.writeJSON(w, map[string]string{"status": "ok"})
+
+	default:
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
 // handleBackup creates a database backup and returns it as a downloadable file.
 func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {

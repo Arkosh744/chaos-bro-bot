@@ -21,3 +21,4 @@
 - [x] [100%] Mini-games: /game — угадай число, правда/действие, данетки, тривиа с inline кнопками (2026-03-17)
 - [x] [100%] Leaderboard (/top) + Streak Rewards (secret commands) + Extended Alter-Egos (4 new) (2026-03-17)
 - [x] [100%] Technical: Graceful Degradation (Claude offline mode) + SQLite Backup (daily + web endpoint) + Rate Limiting (30/hour per user) (2026-03-17)
+- [x] [100%] Admin Panel: Chat-style conversation viewer + Prompt Editor tab (2026-03-17)

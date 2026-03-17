@@ -163,6 +163,9 @@ func (b *Bot) handleHelp(c tele.Context) error {
 /streak — серия дней подряд
 /habit — трекер привычек
 /sleep — анализ сна за неделю
+/playlist — плейлист под настроение
+/future — письмо от тебя из будущего
+/anon текст — анонимное сообщение (группы)
 /game — мини-игры (угадайка, тривиа, данетки)
 /top — таблица лидеров
 /help — эта справка
@@ -933,6 +936,54 @@ func (b *Bot) handleHoroscope(c tele.Context) error {
 	return b.claudeReply(c, func() (string, error) {
 		return b.claude.Ask(context.Background(), prompt, "Антигороскоп на сегодня")
 	}, "\u2B50 ")
+}
+
+func (b *Bot) handlePlaylist(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /playlist", userID)
+
+	userCtx := b.buildUserContext(userID)
+	prompt := fmt.Sprintf(features.PlaylistPrompt, userCtx)
+
+	return b.claudeReply(c, func() (string, error) {
+		return b.claude.Ask(context.Background(), prompt, "Подбери плейлист")
+	}, "")
+}
+
+func (b *Bot) handleFuture(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /future", userID)
+
+	userCtx := b.buildUserContext(userID)
+	prompt := fmt.Sprintf(features.FutureLetterPrompt, userCtx)
+
+	return b.claudeReply(c, func() (string, error) {
+		return b.claude.Ask(context.Background(), prompt, "Напиши письмо из будущего")
+	}, "\U0001F4E8 Письмо из будущего:\n\n")
+}
+
+func (b *Bot) handleAnon(c tele.Context) error {
+	if !isGroupChat(c) {
+		return c.Send("Эта команда работает только в группах.")
+	}
+
+	text := c.Message().Payload
+	if text == "" {
+		return c.Send("Формат: /anon текст сообщения")
+	}
+
+	// Delete original message
+	if err := b.tg.Delete(c.Message()); err != nil {
+		log.Printf("delete anon source: %v", err)
+	}
+
+	// 10% chance bot "accidentally" reveals author
+	prefix := "\U0001F3AD Аноним говорит:\n\n"
+	if rand.Intn(10) == 0 {
+		prefix = fmt.Sprintf("\U0001F3AD Аноним (кажется это %s) говорит:\n\n", c.Sender().FirstName)
+	}
+
+	return c.Send(prefix + text)
 }
 
 func (b *Bot) buildUserContext(userID int64) string {
