@@ -27,6 +27,9 @@ func (b *Bot) handleStart(c tele.Context) error {
 	log.Printf("[%d] /start from %s", c.Sender().ID, c.Sender().Username)
 	name := tricksterNames[rand.Intn(len(tricksterNames))]
 	greeting := fmt.Sprintf("Йо. Я %s. Жми кнопки или просто пиши мне.", name)
+	if ego := features.GetAlterEgo(); ego != nil {
+		greeting = fmt.Sprintf("Йо. Сегодня я %s. Режим: %s. Жми кнопки или просто пиши.", name, ego.Name)
+	}
 	return c.Send(greeting, menu)
 }
 
@@ -214,6 +217,19 @@ func (b *Bot) handleText(c tele.Context) error {
 	go b.maybeUpdateSummary(userID)
 
 	return replyFn(reply, menu)
+}
+
+func (b *Bot) handleBreathing(c tele.Context) error {
+	log.Printf("[%d] breathing", c.Sender().ID)
+
+	msg, err := b.tg.Send(c.Recipient(), "🫁 Приготовься...", menu)
+	if err != nil {
+		return c.Send("Не получилось запустить таймер. "+features.RandomFallback(), menu)
+	}
+
+	go features.RunBreathing(b.tg, msg)
+
+	return nil
 }
 
 func (b *Bot) handleCapsule(c tele.Context) error {

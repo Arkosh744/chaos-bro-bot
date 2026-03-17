@@ -25,6 +25,7 @@ var (
 	btnChaos     = menu.Text("🎲 Ебани куба")
 	btnRandomize = menu.Text("🎱 Кинь кости")
 	btnPredict   = menu.Text("🔮 Судьба")
+	btnBreathe   = menu.Text("🫁 Дыши")
 )
 
 var inlineMenu = &tele.ReplyMarkup{}
@@ -47,6 +48,7 @@ func New(token string, ownerID int64, cl *claude.Client, store *storage.Storage,
 	menu.Reply(
 		menu.Row(btnGround, btnChaos),
 		menu.Row(btnRandomize, btnPredict),
+		menu.Row(btnBreathe),
 	)
 
 	b := &Bot{
@@ -70,6 +72,7 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle(&btnPredict, b.handlePrediction)
 	b.tg.Handle(&btnMoreGround, b.handleGroundingMore)
 	b.tg.Handle(&btnMoreChaos, b.handleChaosMore)
+	b.tg.Handle(&btnBreathe, b.handleBreathing)
 	b.tg.Handle("/capsule", b.handleCapsule)
 	b.tg.Handle(tele.OnText, b.handleText)
 }
