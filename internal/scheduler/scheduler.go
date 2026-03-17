@@ -49,6 +49,8 @@ func (s *Scheduler) Start() {
 	log.Printf("Scheduler started: pings between %d:00-%d:00 for user %d", s.cfg.MinHour, s.cfg.MaxHour, s.cfg.OwnerID)
 	go s.loop()
 	go s.capsuleLoop()
+	go s.morningCheckLoop()
+	go s.digestLoop()
 }
 
 func (s *Scheduler) Stop() {
@@ -196,6 +198,54 @@ func (s *Scheduler) capsuleLoop() {
 	}
 }
 
+func (s *Scheduler) morningCheckLoop() {
+	for {
+		now := time.Now()
+		// Next check-in: tomorrow between 9:00-9:59
+		next := time.Date(now.Year(), now.Month(), now.Day()+1, 9, rand.Intn(60), 0, 0, now.Location())
+		if now.Hour() < 9 {
+			// If before 9am today, schedule for today
+			next = time.Date(now.Year(), now.Month(), now.Day(), 9, rand.Intn(60), 0, 0, now.Location())
+		}
+
+		log.Printf("Next morning check-in at %s", next.Format("2006-01-02 15:04"))
+		timer := time.NewTimer(time.Until(next))
+		select {
+		case <-s.stop:
+			timer.Stop()
+			return
+		case <-timer.C:
+			s.sendMorningCheck()
+		}
+	}
+}
+
+func (s *Scheduler) sendMorningCheck() {
+	if s.cfg.OwnerID == 0 {
+		return
+	}
+
+	inline := &tele.ReplyMarkup{}
+	rows := []tele.Row{
+		inline.Row(
+			inline.Data("1", "mood_1"), inline.Data("2", "mood_2"),
+			inline.Data("3", "mood_3"), inline.Data("4", "mood_4"),
+			inline.Data("5", "mood_5"),
+		),
+		inline.Row(
+			inline.Data("6", "mood_6"), inline.Data("7", "mood_7"),
+			inline.Data("8", "mood_8"), inline.Data("9", "mood_9"),
+			inline.Data("10", "mood_10"),
+		),
+	}
+	inline.Inline(rows...)
+
+	recipient := &chatRecipient{id: s.cfg.OwnerID}
+	if _, err := s.tg.Send(recipient, "Утро. Как ты от 1 до 10?", inline); err != nil {
+		log.Printf("morning check send: %v", err)
+	}
+}
+
 func (s *Scheduler) deliverCapsules() {
 	if s.store == nil {
 		return
@@ -219,4 +269,44 @@ func (s *Scheduler) deliverCapsules() {
 		}
 		log.Printf("capsule delivered to %d: %.50s", cap.UserID, cap.Text)
 	}
+}
+
+func (s *Scheduler) digestLoop() {
+	for {
+		now := time.Now()
+		// Next Sunday at 20:00 + random minutes
+		daysUntilSunday := (7 - int(now.Weekday())) % 7
+		if daysUntilSunday == 0 && now.Hour() >= 20 {
+			daysUntilSunday = 7
+		}
+		next := time.Date(now.Year(), now.Month(), now.Day()+daysUntilSunday, 20, rand.Intn(60), 0, 0, now.Location())
+
+		log.Printf("Next weekly digest at %s", next.Format("2006-01-02 15:04"))
+		timer := time.NewTimer(time.Until(next))
+		select {
+		case <-s.stop:
+			timer.Stop()
+			return
+		case <-timer.C:
+			s.sendDigest()
+		}
+	}
+}
+
+func (s *Scheduler) sendDigest() {
+	if s.cfg.OwnerID == 0 || s.store == nil {
+		return
+	}
+
+	digest, err := features.GenerateDigest(context.Background(), s.claude, s.store, s.cfg.OwnerID)
+	if err != nil {
+		log.Printf("digest error: %v", err)
+		return
+	}
+
+	recipient := &chatRecipient{id: s.cfg.OwnerID}
+	if _, err := s.tg.Send(recipient, "📋 Дайджест недели:\n\n"+digest); err != nil {
+		log.Printf("digest send: %v", err)
+	}
+	log.Printf("weekly digest sent")
 }

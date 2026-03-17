@@ -330,6 +330,38 @@ func (b *Bot) handleCapsule(c tele.Context) error {
 	return c.Send(fmt.Sprintf("⏳ Записал. Доставлю через %d дн. Ты забудешь, а я — нет.", days), menu)
 }
 
+var moodReplies = map[int][]string{
+	1:  {"Ого, жёстко. Ну, день только начался.", "Хуже быть не может — значит дальше только вверх. Или нет."},
+	2:  {"Два из десяти? Бывало и лучше, а?", "Ладно, хотя бы честно."},
+	3:  {"Три — это 'мог бы и не просыпаться'. Понимаю.", "Бывает. Кофе уже пил?"},
+	4:  {"Четвёрка. Не дно, но близко. Держись.", "Могло быть хуже. Могло быть и лучше."},
+	5:  {"Ровно посередине. Идеальный баланс хуйни.", "Пятёрка — это 'живой и ладно'."},
+	6:  {"Шесть — это 'нормально'. Скучно, но стабильно.", "Выше среднего. Неплохо для утра."},
+	7:  {"Семёрка! Кто-то сегодня выспался.", "Хороший показатель. Не расслабляйся."},
+	8:  {"Восемь? Красава. Что случилось?", "Восьмёрка. Подозрительно хорошо."},
+	9:  {"Девять?! Ты точно не врёшь?", "Девятка. Ну ты монстр."},
+	10: {"Десять?! Кто ты и что сделал с настоящим юзером?", "Максимум? Ну окей, сегодня ты бог."},
+}
+
+func (b *Bot) handleMoodScore(c tele.Context, score int) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] mood score: %d", userID, score)
+
+	// Save mood to storage
+	if _, err := b.store.SaveMessage(userID, "user", fmt.Sprintf("[mood:%d]", score)); err != nil {
+		log.Printf("[%d] save mood error: %v", userID, err)
+	}
+
+	replies := moodReplies[score]
+	reply := replies[rand.Intn(len(replies))]
+
+	if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
+		log.Printf("[%d] save mood reply error: %v", userID, err)
+	}
+
+	return c.Edit(fmt.Sprintf("Утро. Как ты от 1 до 10?\n\n*%d* — %s", score, reply), tele.ModeMarkdown)
+}
+
 func (b *Bot) buildUserContext(userID int64) string {
 	summary, _, err := b.store.GetSummary(userID)
 	if err != nil {
@@ -357,7 +389,21 @@ func (b *Bot) maybeUpdateSummary(userID int64) {
 	log.Printf("[%d] updating summary...", userID)
 	if err := features.UpdateSummary(context.Background(), b.claude, b.store, userID); err != nil {
 		log.Printf("[%d] update summary error: %v", userID, err)
-	} else {
-		log.Printf("[%d] summary updated", userID)
+		return
+	}
+	log.Printf("[%d] summary updated", userID)
+
+	// Detect patterns after summary update
+	pattern, err := features.DetectPatterns(context.Background(), b.claude, b.store, userID)
+	if err != nil {
+		log.Printf("[%d] pattern detect error: %v", userID, err)
+		return
+	}
+	if pattern != "" {
+		log.Printf("[%d] pattern detected: %s", userID, pattern)
+		recipient := &tele.User{ID: userID}
+		if _, err := b.tg.Send(recipient, "📊 "+pattern); err != nil {
+			log.Printf("[%d] pattern send error: %v", userID, err)
+		}
 	}
 }

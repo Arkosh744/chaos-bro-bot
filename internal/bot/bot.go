@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -77,6 +78,12 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle(&btnMoreChaos, b.handleChaosMore)
 	b.tg.Handle(&btnBreathe, b.handleBreathing)
 	b.tg.Handle("/capsule", b.handleCapsule)
+	for i := 1; i <= 10; i++ {
+		score := i
+		b.tg.Handle(&tele.InlineButton{Unique: fmt.Sprintf("mood_%d", i)}, func(c tele.Context) error {
+			return b.handleMoodScore(c, score)
+		})
+	}
 	b.tg.Handle(tele.OnText, b.handleText)
 	b.tg.Handle(tele.OnVoice, b.handleVoice)
 }
