@@ -45,7 +45,8 @@ func buildBreathText(phase breathPhase, sec, round int) string {
 }
 
 // RunBreathing edits the given message through a guided breathing exercise.
-func RunBreathing(bot *tele.Bot, msg *tele.Message) {
+// If onComplete is non-nil, it is called after the final message is sent.
+func RunBreathing(bot *tele.Bot, msg *tele.Message, onComplete func()) {
 	for round := 1; round <= BreathingRounds; round++ {
 		for _, phase := range phases {
 			for sec := 0; sec <= phase.seconds; sec++ {
@@ -62,5 +63,9 @@ func RunBreathing(bot *tele.Bot, msg *tele.Message) {
 
 	if _, err := bot.Edit(msg, "✅ *Готово.*\n\nКак ощущения? Напиши одним словом.", tele.ModeMarkdown); err != nil {
 		log.Printf("breathing final edit error: %v", err)
+	}
+
+	if onComplete != nil {
+		onComplete()
 	}
 }

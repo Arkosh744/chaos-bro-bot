@@ -34,6 +34,18 @@ func (b *Bot) checkAndSendAchievements(c tele.Context, event string) {
 	}
 }
 
+// claudeReply handles the common pattern: start thinking -> call Claude -> handle error -> send reply.
+func (b *Bot) claudeReply(c tele.Context, ask func() (string, error), prefix string) error {
+	replyFn, stop := b.startThinking(c)
+	result, err := ask()
+	if err != nil {
+		stop()
+		log.Printf("[%d] claude error: %v", c.Sender().ID, err)
+		return c.Send(prefix+features.RandomFallback(), menu)
+	}
+	return replyFn(prefix+result, menu)
+}
+
 func (b *Bot) handleAchievements(c tele.Context) error {
 	userID := c.Sender().ID
 	names, err := b.store.GetAchievements(userID)
@@ -117,11 +129,19 @@ func (b *Bot) handleStart(c tele.Context) error {
 	log.Printf("[%d] /start from %s", c.Sender().ID, c.Sender().Username)
 	b.saveUserProfile(c)
 	name := tricksterNames[rand.Intn(len(tricksterNames))]
-	greeting := fmt.Sprintf("Йо. Я %s. Жми кнопки или просто пиши мне.", name)
+	greeting := fmt.Sprintf("Йо. Я *%s*.", name)
 	if ego := features.GetAlterEgo(); ego != nil {
-		greeting = fmt.Sprintf("Йо. Сегодня я %s. Режим: %s. Жми кнопки или просто пиши.", name, ego.Name)
+		greeting = fmt.Sprintf("Йо. Сегодня я *%s*. Режим: _%s_.", name, ego.Name)
 	}
-	return c.Send(greeting, menu)
+
+	// First message: intro
+	if err := c.Send(greeting+"\n\nЯ дерзкий друг-трикстер. Не коуч, не AI, не мамка.\nЖми кнопки или просто пиши мне. /help — все команды.", menu, tele.ModeMarkdown); err != nil {
+		log.Printf("[%d] start send error: %v", c.Sender().ID, err)
+	}
+
+	// Second message: a welcome grounding technique
+	technique := features.RandomGrounding()
+	return c.Send("👁 Вот тебе для начала:\n\n"+technique, menu)
 }
 
 func (b *Bot) saveUserProfile(c tele.Context) {
@@ -207,27 +227,26 @@ func (b *Bot) handleRandomize(c tele.Context) error {
 }
 
 func (b *Bot) handlePrediction(c tele.Context) error {
-	userID := c.Sender().ID
-	log.Printf("[%d] prediction", userID)
+	log.Printf("[%d] prediction", c.Sender().ID)
 	defer b.checkAndSendAchievements(c, "prediction")
 
-	replyFn, stop := b.startThinking(c)
-	prediction, err := b.claude.Ask(context.Background(), features.PredictionPrompt, "Предскажи")
-	if err != nil {
-		stop()
-		log.Printf("[%d] prediction error: %v", userID, err)
-		return c.Send("🔮 "+features.RandomFallback(), menu)
-	}
-	return replyFn("🔮 "+prediction, menu)
+	return b.claudeReply(c, func() (string, error) {
+		return b.claude.Ask(context.Background(), features.PredictionPrompt, "Предскажи")
+	}, "🔮 ")
 }
 
 func (b *Bot) handleSilence(c tele.Context) error {
 	userID := c.Sender().ID
 	log.Printf("[%d] /silence", userID)
 
-	// Already in silence mode — report remaining time
-	if remaining := b.store.GetSilenceRemaining(userID); remaining > 0 {
-		return c.Send(fmt.Sprintf("Уже молчу. Осталось %d ч.", remaining), menu)
+	// Already in silence mode — toggle off
+	if b.store.IsSilenceMode(userID) {
+		remaining := b.store.GetSilenceRemaining(userID)
+		if err := b.store.SetCounter(userID, "silence_until", 0); err != nil {
+			log.Printf("[%d] reset silence mode error: %v", userID, err)
+		}
+		log.Printf("[%d] silence mode deactivated, had %dh remaining", userID, remaining)
+		return c.Send(fmt.Sprintf("\U0001F50A Молчание снято. Оставалось %dч.", remaining), menu)
 	}
 
 	// Activate silence mode for 24 hours
@@ -244,6 +263,15 @@ func (b *Bot) handleSilence(c tele.Context) error {
 func (b *Bot) handleMirror(c tele.Context) error {
 	userID := c.Sender().ID
 	log.Printf("[%d] /mirror", userID)
+
+	// Check if already active — toggle off
+	remaining, _ := b.store.GetCounter(userID, "mirror_remaining")
+	if remaining > 0 {
+		if err := b.store.SetCounter(userID, "mirror_remaining", 0); err != nil {
+			log.Printf("[%d] reset mirror mode error: %v", userID, err)
+		}
+		return c.Send("\U0001FA9E Зеркало выключено.", menu)
+	}
 
 	if err := b.store.SetCounter(userID, "mirror_remaining", 10); err != nil {
 		log.Printf("[%d] set mirror mode error: %v", userID, err)
@@ -319,6 +347,8 @@ func (b *Bot) handleText(c tele.Context) error {
 
 		if newVal == 0 {
 			reply = reply + "\n\n\U0001FA9E Зеркало выключено. Я снова я."
+		} else {
+			reply = reply + fmt.Sprintf("\n\n_\U0001FA9E %d_", newVal)
 		}
 
 		if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
@@ -348,16 +378,14 @@ func (b *Bot) handleText(c tele.Context) error {
 		return c.Send(reply, menu)
 	}
 
-	// Offended reply if user was silent for >24h
+	// Offended reply if user was silent for >24h — return early, don't answer
 	lastTime, err := b.store.LastMessageTime(userID)
 	if err == nil && !lastTime.IsZero() && time.Since(lastTime) > 24*time.Hour {
 		offended := features.OffendedReplies[rand.Intn(len(features.OffendedReplies))]
 		if _, err := b.store.SaveMessage(userID, "bot", offended); err != nil {
 			log.Printf("[%d] save offended error: %v", userID, err)
 		}
-		if err := c.Send(offended, menu); err != nil {
-			log.Printf("[%d] offended send error: %v", userID, err)
-		}
+		return c.Send(offended, menu)
 	}
 
 	// Bargain: 20% chance bot demands something before answering
@@ -509,7 +537,6 @@ func (b *Bot) handleVoice(c tele.Context) error {
 
 func (b *Bot) handleBreathing(c tele.Context) error {
 	log.Printf("[%d] breathing", c.Sender().ID)
-	defer b.checkAndSendAchievements(c, "breathing")
 
 	// Send WITHOUT reply keyboard — Telegram blocks Edit on messages with ReplyMarkup
 	msg, err := b.tg.Send(c.Recipient(), "\U0001FAC1 Приготовься...")
@@ -517,7 +544,9 @@ func (b *Bot) handleBreathing(c tele.Context) error {
 		return c.Send("Не получилось запустить таймер. "+features.RandomFallback(), menu)
 	}
 
-	go features.RunBreathing(b.tg, msg)
+	go features.RunBreathing(b.tg, msg, func() {
+		b.checkAndSendAchievements(c, "breathing")
+	})
 
 	return nil
 }
@@ -710,54 +739,31 @@ func (b *Bot) handleRoast(c tele.Context) error {
 	userID := c.Sender().ID
 	log.Printf("[%d] /roast", userID)
 
-	replyFn, stop := b.startThinking(c)
-
 	userCtx := b.buildUserContext(userID)
 	prompt := fmt.Sprintf(features.RoastPrompt, userCtx)
 
-	reply, err := b.claude.Ask(context.Background(), prompt, "Зароасти меня")
-	if err != nil {
-		stop()
-		log.Printf("[%d] roast error: %v", userID, err)
-		return c.Send(features.RandomFallback(), menu)
-	}
-
-	return replyFn(reply, menu)
+	return b.claudeReply(c, func() (string, error) {
+		return b.claude.Ask(context.Background(), prompt, "Зароасти меня")
+	}, "")
 }
 
 func (b *Bot) handleWisdom(c tele.Context) error {
-	userID := c.Sender().ID
-	log.Printf("[%d] /wisdom", userID)
+	log.Printf("[%d] /wisdom", c.Sender().ID)
 
-	replyFn, stop := b.startThinking(c)
-
-	reply, err := b.claude.Ask(context.Background(), features.WisdomPrompt, "Дай мудрость")
-	if err != nil {
-		stop()
-		log.Printf("[%d] wisdom error: %v", userID, err)
-		return c.Send(features.RandomFallback(), menu)
-	}
-
-	return replyFn("\U0001F9D9 "+reply, menu)
+	return b.claudeReply(c, func() (string, error) {
+		return b.claude.Ask(context.Background(), features.WisdomPrompt, "Дай мудрость")
+	}, "\U0001F9D9 ")
 }
 
 func (b *Bot) handleHoroscope(c tele.Context) error {
-	userID := c.Sender().ID
-	log.Printf("[%d] /horoscope", userID)
-
-	replyFn, stop := b.startThinking(c)
+	log.Printf("[%d] /horoscope", c.Sender().ID)
 
 	today := time.Now().Format("2 January 2006")
 	prompt := fmt.Sprintf(features.AntiHoroscopePrompt, today)
 
-	reply, err := b.claude.Ask(context.Background(), prompt, "Антигороскоп на сегодня")
-	if err != nil {
-		stop()
-		log.Printf("[%d] horoscope error: %v", userID, err)
-		return c.Send(features.RandomFallback(), menu)
-	}
-
-	return replyFn("\u2B50 "+reply, menu)
+	return b.claudeReply(c, func() (string, error) {
+		return b.claude.Ask(context.Background(), prompt, "Антигороскоп на сегодня")
+	}, "\u2B50 ")
 }
 
 func (b *Bot) buildUserContext(userID int64) string {

@@ -24,18 +24,24 @@ type Bot struct {
 }
 
 var menu = &tele.ReplyMarkup{ResizeKeyboard: true}
+var menuMore = &tele.ReplyMarkup{ResizeKeyboard: true}
 
 var (
+	// Main menu buttons
 	btnGround    = menu.Text("👁 Очнись")
 	btnChaos     = menu.Text("🎲 Ебани куба")
-	btnRandomize = menu.Text("🎱 Кинь кости")
 	btnPredict   = menu.Text("🔮 Судьба")
+	btnRandomize = menu.Text("🎱 Кинь кости")
 	btnBreathe   = menu.Text("🫁 Дыши")
-	btnRoast     = menu.Text("🔥 Зажарь")
-	btnWisdom    = menu.Text("🧙 Мудрость")
-	btnHoroscope = menu.Text("⭐ Гороскоп")
-	btnMood      = menu.Text("📊 Настроение")
-	btnMirror    = menu.Text("🪞 Зеркало")
+	btnMore      = menu.Text("➡️ Ещё")
+
+	// Secondary menu buttons
+	btnRoast     = menuMore.Text("🔥 Зажарь")
+	btnWisdom    = menuMore.Text("🧙 Мудрость")
+	btnHoroscope = menuMore.Text("⭐ Гороскоп")
+	btnMood      = menuMore.Text("📊 Настроение")
+	btnMirror    = menuMore.Text("🪞 Зеркало")
+	btnBack      = menuMore.Text("⬅️ Назад")
 )
 
 var inlineMenu = &tele.ReplyMarkup{}
@@ -57,9 +63,11 @@ func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperCl
 
 	menu.Reply(
 		menu.Row(btnGround, btnChaos, btnPredict),
-		menu.Row(btnRandomize, btnRoast, btnWisdom),
-		menu.Row(btnHoroscope, btnMood, btnMirror),
-		menu.Row(btnBreathe),
+		menu.Row(btnRandomize, btnBreathe, btnMore),
+	)
+	menuMore.Reply(
+		menuMore.Row(btnRoast, btnWisdom, btnHoroscope),
+		menuMore.Row(btnMood, btnMirror, btnBack),
 	)
 
 	b := &Bot{
@@ -93,6 +101,12 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle(&btnMoreGround, b.handleGroundingMore)
 	b.tg.Handle(&btnMoreChaos, b.handleChaosMore)
 	b.tg.Handle(&btnBreathe, b.handleBreathing)
+	b.tg.Handle(&btnMore, func(c tele.Context) error {
+		return c.Send("🎭 Дополнительные возможности:", menuMore)
+	})
+	b.tg.Handle(&btnBack, func(c tele.Context) error {
+		return c.Send("👌", menu)
+	})
 	b.tg.Handle("/capsule", b.handleCapsule)
 	for i := 1; i <= 10; i++ {
 		score := i
