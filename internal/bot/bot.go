@@ -31,6 +31,11 @@ var (
 	btnRandomize = menu.Text("🎱 Кинь кости")
 	btnPredict   = menu.Text("🔮 Судьба")
 	btnBreathe   = menu.Text("🫁 Дыши")
+	btnRoast     = menu.Text("🔥 Зажарь")
+	btnWisdom    = menu.Text("🧙 Мудрость")
+	btnHoroscope = menu.Text("⭐ Гороскоп")
+	btnMood      = menu.Text("📊 Настроение")
+	btnMirror    = menu.Text("🪞 Зеркало")
 )
 
 var inlineMenu = &tele.ReplyMarkup{}
@@ -51,8 +56,9 @@ func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperCl
 	}
 
 	menu.Reply(
-		menu.Row(btnGround, btnChaos),
-		menu.Row(btnRandomize, btnPredict),
+		menu.Row(btnGround, btnChaos, btnPredict),
+		menu.Row(btnRandomize, btnRoast, btnWisdom),
+		menu.Row(btnHoroscope, btnMood, btnMirror),
 		menu.Row(btnBreathe),
 	)
 
@@ -93,6 +99,11 @@ func (b *Bot) registerHandlers() {
 			return b.handleMoodScore(c, score)
 		})
 	}
+	b.tg.Handle(&btnRoast, b.handleRoast)
+	b.tg.Handle(&btnWisdom, b.handleWisdom)
+	b.tg.Handle(&btnHoroscope, b.handleHoroscope)
+	b.tg.Handle(&btnMood, b.handleMoodGraph)
+	b.tg.Handle(&btnMirror, b.handleMirror)
 	b.tg.Handle("/mood", b.handleMoodGraph)
 	b.tg.Handle("/achievements", b.handleAchievements)
 	b.tg.Handle("/profile", b.handleProfile)
