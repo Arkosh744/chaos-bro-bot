@@ -1,18 +1,26 @@
 telegram:
   token: "YOUR_BOT_TOKEN"
-  owner_id: 0
+  owner_id: 0                     # your Telegram user ID for scheduler (morning/evening checks, digest)
 
 claude:
-  model: "haiku"
-  timeout: 120s
+  model: "sonnet"                 # claude model name (default: sonnet)
+  timeout: 120s                   # claude CLI call timeout (default: 30s)
 
 scheduler:
-  enabled: false
-  min_hour: 9
-  max_hour: 22
+  enabled: false                  # enable scheduled pings, morning ritual, evening reflection, digest
+  min_hour: 9                     # earliest hour for random pings (0-23)
+  max_hour: 22                    # latest hour for random pings (0-23)
 
 storage:
-  db_path: "trickster.db"
+  db_path: "trickster.db"        # SQLite database path
+
+groq:
+  api_key: ""                     # Groq API key for Whisper voice transcription (optional)
+
+web:
+  enabled: false                  # enable web admin dashboard
+  port: 8080                      # web server port (default: 8080)
+  auth_token: ""                  # auth token for web panel (empty = auto-generated, printed to log)
 
 group:
-  interject_chance: 10  # percentage 0-100, random interjection chance in groups
+  interject_chance: 10            # percentage 0-100, random interjection chance in group chats

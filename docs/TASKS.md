@@ -22,3 +22,4 @@
 - [x] [100%] Leaderboard (/top) + Streak Rewards (secret commands) + Extended Alter-Egos (4 new) (2026-03-17)
 - [x] [100%] Technical: Graceful Degradation (Claude offline mode) + SQLite Backup (daily + web endpoint) + Rate Limiting (30/hour per user) (2026-03-17)
 - [x] [100%] Admin Panel: Chat-style conversation viewer + Prompt Editor tab (2026-03-17)
+- [x] [100%] Обновление документации: README.md + config.example.yaml — полное описание всех фич (2026-03-17)
