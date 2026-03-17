@@ -84,6 +84,8 @@ func (b *Bot) registerHandlers() {
 			return b.handleMoodScore(c, score)
 		})
 	}
+	b.tg.Handle("/achievements", b.handleAchievements)
+	b.tg.Handle(tele.OnPhoto, b.handlePhoto)
 	b.tg.Handle(tele.OnText, b.handleText)
 	b.tg.Handle(tele.OnVoice, b.handleVoice)
 }

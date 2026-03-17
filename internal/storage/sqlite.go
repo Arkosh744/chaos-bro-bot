@@ -67,6 +67,12 @@ func (s *Storage) migrate() error {
 			value INTEGER NOT NULL DEFAULT 0,
 			PRIMARY KEY (user_id, name)
 		);
+		CREATE TABLE IF NOT EXISTS achievements (
+			user_id INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			unlocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, name)
+		);
 	`)
 	return err
 }
@@ -217,6 +223,57 @@ func (s *Storage) MarkCapsuleDelivered(id int64) error {
 }
 
 // --- Counters ---
+
+// --- Achievements ---
+
+// UnlockAchievement tries to unlock an achievement for a user.
+// Returns true if newly unlocked, false if already existed.
+func (s *Storage) UnlockAchievement(userID int64, name string) (bool, error) {
+	res, err := s.db.Exec(
+		"INSERT OR IGNORE INTO achievements (user_id, name) VALUES (?, ?)",
+		userID, name,
+	)
+	if err != nil {
+		return false, fmt.Errorf("unlock achievement: %w", err)
+	}
+	affected, _ := res.RowsAffected()
+	return affected > 0, nil
+}
+
+// GetAchievements returns all unlocked achievement names for a user, ordered by unlock time.
+func (s *Storage) GetAchievements(userID int64) ([]string, error) {
+	rows, err := s.db.Query(
+		"SELECT name FROM achievements WHERE user_id = ? ORDER BY unlocked_at",
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get achievements: %w", err)
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("scan achievement: %w", err)
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
+// GetCounter returns the current counter value without incrementing.
+func (s *Storage) GetCounter(userID int64, name string) (int, error) {
+	var val int
+	err := s.db.QueryRow(
+		"SELECT value FROM counters WHERE user_id = ? AND name = ?",
+		userID, name,
+	).Scan(&val)
+	if err != nil {
+		return 0, err
+	}
+	return val, nil
+}
 
 func (s *Storage) IncrementCounter(userID int64, name string) (int, error) {
 	_, err := s.db.Exec(`

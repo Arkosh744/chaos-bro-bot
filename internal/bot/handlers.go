@@ -24,6 +24,66 @@ var tricksterNames = []string{
 	"Данте с Районной", "Кратос Уставший", "Довакин Ленивый",
 }
 
+func (b *Bot) checkAndSendAchievements(c tele.Context, event string) {
+	unlocked := features.CheckAchievements(b.store, c.Sender().ID, event)
+	for _, msg := range unlocked {
+		if err := c.Send(msg); err != nil {
+			log.Printf("[%d] achievement send error: %v", c.Sender().ID, err)
+		}
+	}
+}
+
+func (b *Bot) handleAchievements(c tele.Context) error {
+	userID := c.Sender().ID
+	names, err := b.store.GetAchievements(userID)
+	if err != nil {
+		return c.Send(features.RandomFallback(), menu)
+	}
+	if len(names) == 0 {
+		return c.Send("У тебя пока нет ачивок. Давай, начинай играть.", menu)
+	}
+
+	msg := "\U0001F3C6 Твои ачивки:\n\n"
+	for _, name := range names {
+		if def, ok := features.Achievements[name]; ok {
+			msg += fmt.Sprintf("%s %s — %s\n", def.Emoji, def.Name, def.Desc)
+		}
+	}
+	return c.Send(msg, menu)
+}
+
+func (b *Bot) handlePhoto(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] photo", userID)
+
+	replyFn, stop := b.startThinking(c)
+
+	caption := c.Message().Caption
+	prompt := "Пользователь прислал фотку."
+	if caption != "" {
+		prompt = "Пользователь прислал фотку с подписью: " + caption
+	}
+
+	userCtx := b.buildUserContext(userID)
+	reply, err := features.TricksterReply(context.Background(), b.claude, prompt, userCtx)
+	if err != nil {
+		stop()
+		log.Printf("[%d] photo reply error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	if _, err := b.store.SaveMessage(userID, "user", "[\U0001F4F7] "+prompt); err != nil {
+		log.Printf("[%d] save photo msg error: %v", userID, err)
+	}
+	if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
+		log.Printf("[%d] save photo reply error: %v", userID, err)
+	}
+
+	b.checkAndSendAchievements(c, "photo")
+
+	return replyFn(reply, menu)
+}
+
 func (b *Bot) handleStart(c tele.Context) error {
 	log.Printf("[%d] /start from %s", c.Sender().ID, c.Sender().Username)
 	name := tricksterNames[rand.Intn(len(tricksterNames))]
@@ -36,6 +96,7 @@ func (b *Bot) handleStart(c tele.Context) error {
 
 func (b *Bot) handleGrounding(c tele.Context) error {
 	log.Printf("[%d] grounding", c.Sender().ID)
+	defer b.checkAndSendAchievements(c, "grounding")
 	technique := features.RandomGrounding()
 
 	inline := &tele.ReplyMarkup{}
@@ -55,6 +116,7 @@ func (b *Bot) handleGroundingMore(c tele.Context) error {
 func (b *Bot) handleChaos(c tele.Context) error {
 	userID := c.Sender().ID
 	log.Printf("[%d] chaos", userID)
+	defer b.checkAndSendAchievements(c, "chaos")
 
 	// Sleep mode: no claude calls between 23:00 and 09:00
 	if features.IsSleepTime() {
@@ -107,6 +169,7 @@ func (b *Bot) handleRandomize(c tele.Context) error {
 func (b *Bot) handlePrediction(c tele.Context) error {
 	userID := c.Sender().ID
 	log.Printf("[%d] prediction", userID)
+	defer b.checkAndSendAchievements(c, "prediction")
 
 	replyFn, stop := b.startThinking(c)
 	prediction, err := b.claude.Ask(context.Background(), features.PredictionPrompt, "Предскажи")
@@ -122,6 +185,7 @@ func (b *Bot) handleText(c tele.Context) error {
 	text := c.Text()
 	userID := c.Sender().ID
 	log.Printf("[%d] text: %s", userID, text)
+	defer b.checkAndSendAchievements(c, "message")
 
 	// Save user message
 	if _, err := b.store.SaveMessage(userID, "user", text); err != nil {
@@ -134,6 +198,7 @@ func (b *Bot) handleText(c tele.Context) error {
 		if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
 			log.Printf("[%d] save bot message error: %v", userID, err)
 		}
+		b.checkAndSendAchievements(c, "easter_egg")
 		return c.Send(reply, menu)
 	}
 
@@ -223,6 +288,7 @@ func (b *Bot) handleText(c tele.Context) error {
 func (b *Bot) handleVoice(c tele.Context) error {
 	userID := c.Sender().ID
 	log.Printf("[%d] voice message", userID)
+	defer b.checkAndSendAchievements(c, "voice")
 
 	if b.whisper == nil {
 		return c.Send("Голосовые не настроены. Нужен Groq API ключ.", menu)
@@ -290,8 +356,9 @@ func (b *Bot) handleVoice(c tele.Context) error {
 
 func (b *Bot) handleBreathing(c tele.Context) error {
 	log.Printf("[%d] breathing", c.Sender().ID)
+	defer b.checkAndSendAchievements(c, "breathing")
 
-	msg, err := b.tg.Send(c.Recipient(), "🫁 Приготовься...", menu)
+	msg, err := b.tg.Send(c.Recipient(), "\U0001FAC1 Приготовься...", menu)
 	if err != nil {
 		return c.Send("Не получилось запустить таймер. "+features.RandomFallback(), menu)
 	}
@@ -327,7 +394,9 @@ func (b *Bot) handleCapsule(c tele.Context) error {
 		return c.Send(features.RandomFallback(), menu)
 	}
 
-	return c.Send(fmt.Sprintf("⏳ Записал. Доставлю через %d дн. Ты забудешь, а я — нет.", days), menu)
+	b.checkAndSendAchievements(c, "capsule")
+
+	return c.Send(fmt.Sprintf("\u231B Записал. Доставлю через %d дн. Ты забудешь, а я — нет.", days), menu)
 }
 
 var moodReplies = map[int][]string{
@@ -357,6 +426,13 @@ func (b *Bot) handleMoodScore(c tele.Context, score int) error {
 
 	if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
 		log.Printf("[%d] save mood reply error: %v", userID, err)
+	}
+
+	if score == 10 {
+		b.checkAndSendAchievements(c, "mood_10")
+	}
+	if score == 1 {
+		b.checkAndSendAchievements(c, "mood_1")
 	}
 
 	return c.Edit(fmt.Sprintf("Утро. Как ты от 1 до 10?\n\n*%d* — %s", score, reply), tele.ModeMarkdown)

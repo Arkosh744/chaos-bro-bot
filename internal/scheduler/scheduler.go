@@ -244,6 +244,16 @@ func (s *Scheduler) sendMorningCheck() {
 	if _, err := s.tg.Send(recipient, "Утро. Как ты от 1 до 10?", inline); err != nil {
 		log.Printf("morning check send: %v", err)
 	}
+
+	// Daily quest
+	quest, err := s.claude.Ask(context.Background(), features.DailyQuestPrompt, "Дай квест на сегодня")
+	if err == nil && quest != "" {
+		if _, err := s.tg.Send(recipient, "\U0001F4DC Квест дня: "+quest); err != nil {
+			log.Printf("daily quest send: %v", err)
+		}
+	} else if err != nil {
+		log.Printf("daily quest generate: %v", err)
+	}
 }
 
 func (s *Scheduler) deliverCapsules() {
