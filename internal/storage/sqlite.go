@@ -52,6 +52,21 @@ func (s *Storage) migrate() error {
 			last_message_id INTEGER NOT NULL DEFAULT 0,
 			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
+		CREATE TABLE IF NOT EXISTS capsules (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL,
+			text TEXT NOT NULL,
+			deliver_at TIMESTAMP NOT NULL,
+			delivered INTEGER NOT NULL DEFAULT 0,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_capsules_deliver ON capsules(delivered, deliver_at);
+		CREATE TABLE IF NOT EXISTS counters (
+			user_id INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			value INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (user_id, name)
+		);
 	`)
 	return err
 }
@@ -157,4 +172,62 @@ func (s *Storage) GetMessagesSince(userID, sinceID int64, limit int) ([]Message,
 		msgs = append(msgs, m)
 	}
 	return msgs, nil
+}
+
+// --- Capsules ---
+
+type Capsule struct {
+	ID        int64
+	UserID    int64
+	Text      string
+	DeliverAt time.Time
+}
+
+func (s *Storage) SaveCapsule(userID int64, text string, deliverAt time.Time) error {
+	_, err := s.db.Exec(
+		"INSERT INTO capsules (user_id, text, deliver_at) VALUES (?, ?, ?)",
+		userID, text, deliverAt,
+	)
+	return err
+}
+
+func (s *Storage) GetDueCapsules() ([]Capsule, error) {
+	rows, err := s.db.Query(
+		"SELECT id, user_id, text, deliver_at FROM capsules WHERE delivered = 0 AND deliver_at <= CURRENT_TIMESTAMP",
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var caps []Capsule
+	for rows.Next() {
+		var c Capsule
+		if err := rows.Scan(&c.ID, &c.UserID, &c.Text, &c.DeliverAt); err != nil {
+			return nil, err
+		}
+		caps = append(caps, c)
+	}
+	return caps, nil
+}
+
+func (s *Storage) MarkCapsuleDelivered(id int64) error {
+	_, err := s.db.Exec("UPDATE capsules SET delivered = 1 WHERE id = ?", id)
+	return err
+}
+
+// --- Counters ---
+
+func (s *Storage) IncrementCounter(userID int64, name string) (int, error) {
+	_, err := s.db.Exec(`
+		INSERT INTO counters (user_id, name, value) VALUES (?, ?, 1)
+		ON CONFLICT(user_id, name) DO UPDATE SET value = value + 1`,
+		userID, name,
+	)
+	if err != nil {
+		return 0, err
+	}
+	var val int
+	err = s.db.QueryRow("SELECT value FROM counters WHERE user_id = ? AND name = ?", userID, name).Scan(&val)
+	return val, err
 }

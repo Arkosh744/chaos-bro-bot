@@ -70,6 +70,7 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle(&btnPredict, b.handlePrediction)
 	b.tg.Handle(&btnMoreGround, b.handleGroundingMore)
 	b.tg.Handle(&btnMoreChaos, b.handleChaosMore)
+	b.tg.Handle("/capsule", b.handleCapsule)
 	b.tg.Handle(tele.OnText, b.handleText)
 }
 

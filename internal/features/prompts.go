@@ -1,6 +1,9 @@
 package features
 
-import "time"
+import (
+	"math/rand"
+	"time"
+)
 
 // SleepReplies are used when the bot is "sleeping" (23:00–09:00).
 var SleepReplies = []string{
@@ -166,3 +169,21 @@ const QuotesSystemPrompt = `Выдай одну рандомную цитату 
 "My life for Aiur!" — Zealot, StarCraft
 "Stay awhile and listen." — Deckard Cain, Diablo II
 "The cake is a lie." — Graffiti, Portal`
+
+// Loot drops every 10 messages
+var lootPool = []string{
+	"🎁 Дроп! Ты получил: бесполезный, но приятный комплимент. Ты норм.",
+	"🎁 Дроп! Ты получил: +1 к мудрости. Или нет. Хрен знает.",
+	"🎁 Дроп! Ты получил: рандомный факт — осьминоги имеют три сердца.",
+	"🎁 Дроп! Ты получил: невидимый щит от хуйни на 1 час.",
+	"🎁 Дроп! Ты получил: право не отвечать на следующее сообщение.",
+	"🎁 Дроп! Ты получил: +5 к харизме. Действует до полуночи.",
+	"🎁 Дроп! Ты получил: легендарный предмет 'Кружка Чая'. Используй мудро.",
+	"🎁 Дроп! Ты получил: ачивку 'Болтун'. Ты написал мне кучу сообщений.",
+	"🎁 Дроп! Ты получил: благословение трикстера. Что это значит — не знаю.",
+	"🎁 Дроп! Ты получил: 1 бесплатный совет. Нет, шучу, я не даю советов.",
+}
+
+func RandomLoot() string {
+	return lootPool[rand.Intn(len(lootPool))]
+}

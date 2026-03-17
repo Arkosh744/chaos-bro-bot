@@ -48,6 +48,7 @@ func (s *Scheduler) Start() {
 	}
 	log.Printf("Scheduler started: pings between %d:00-%d:00 for user %d", s.cfg.MinHour, s.cfg.MaxHour, s.cfg.OwnerID)
 	go s.loop()
+	go s.capsuleLoop()
 }
 
 func (s *Scheduler) Stop() {
@@ -179,4 +180,43 @@ type chatRecipient struct {
 
 func (r *chatRecipient) Recipient() string {
 	return fmt.Sprintf("%d", r.id)
+}
+
+func (s *Scheduler) capsuleLoop() {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			s.deliverCapsules()
+		}
+	}
+}
+
+func (s *Scheduler) deliverCapsules() {
+	if s.store == nil {
+		return
+	}
+
+	capsules, err := s.store.GetDueCapsules()
+	if err != nil {
+		log.Printf("capsule delivery error: %v", err)
+		return
+	}
+
+	for _, cap := range capsules {
+		msg := fmt.Sprintf("⏳ Капсула из прошлого:\n\n%s", cap.Text)
+		recipient := &chatRecipient{id: cap.UserID}
+		if _, err := s.tg.Send(recipient, msg); err != nil {
+			log.Printf("capsule send to %d: %v", cap.UserID, err)
+			continue
+		}
+		if err := s.store.MarkCapsuleDelivered(cap.ID); err != nil {
+			log.Printf("capsule mark delivered %d: %v", cap.ID, err)
+		}
+		log.Printf("capsule delivered to %d: %.50s", cap.UserID, cap.Text)
+	}
 }

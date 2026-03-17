@@ -194,10 +194,55 @@ func (b *Bot) handleText(c tele.Context) error {
 		log.Printf("[%d] save bot message error: %v", userID, err)
 	}
 
+	// Loot drop every 10 messages
+	count, cErr := b.store.IncrementCounter(userID, "messages")
+	if cErr == nil && count%10 == 0 {
+		loot := features.RandomLoot()
+		log.Printf("[%d] loot drop #%d: %s", userID, count, loot)
+		if _, err := b.store.SaveMessage(userID, "bot", loot); err != nil {
+			log.Printf("[%d] save loot error: %v", userID, err)
+		}
+		// Send loot after main reply
+		defer func() {
+			if err := c.Send(loot, menu); err != nil {
+				log.Printf("[%d] loot send error: %v", userID, err)
+			}
+		}()
+	}
+
 	// Check if summary needs update (async, don't block response)
 	go b.maybeUpdateSummary(userID)
 
 	return replyFn(reply, menu)
+}
+
+func (b *Bot) handleCapsule(c tele.Context) error {
+	userID := c.Sender().ID
+	text := c.Message().Payload
+	log.Printf("[%d] capsule: %s", userID, text)
+
+	if text == "" {
+		return c.Send("Формат: /capsule 7 твоё сообщение\nЧисло = через сколько дней доставить.", menu)
+	}
+
+	// Parse: first word is number of days, rest is text
+	parts := strings.SplitN(text, " ", 2)
+	if len(parts) < 2 {
+		return c.Send("Формат: /capsule 7 привет из прошлого", menu)
+	}
+
+	days := 0
+	if _, err := fmt.Sscanf(parts[0], "%d", &days); err != nil || days < 1 || days > 365 {
+		return c.Send("Дней от 1 до 365. Пример: /capsule 30 привет из прошлого", menu)
+	}
+
+	deliverAt := time.Now().AddDate(0, 0, days)
+	if err := b.store.SaveCapsule(userID, parts[1], deliverAt); err != nil {
+		log.Printf("[%d] save capsule error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	return c.Send(fmt.Sprintf("⏳ Записал. Доставлю через %d дн. Ты забудешь, а я — нет.", days), menu)
 }
 
 func (b *Bot) buildUserContext(userID int64) string {
