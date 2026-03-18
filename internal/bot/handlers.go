@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"math/rand"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/features"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
+	"github.com/Arkosh744/chaos-bro-bot/internal/metrics"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -186,6 +188,7 @@ func (b *Bot) handleHelp(c tele.Context) error {
 /story — интерактивная история
 /game — мини-игры (угадайка, тривиа, данетки)
 /top — таблица лидеров
+/voice текст — озвучить текст голосом
 /help — эта справка
 
 *Социальные (группы):*
@@ -366,6 +369,8 @@ func (b *Bot) handleText(c tele.Context) error {
 	text := c.Text()
 	userID := c.Sender().ID
 	log.Printf("[%d] text: %s", userID, text)
+	metrics.IncrementMessages()
+	metrics.TrackActiveUser(userID)
 	defer b.checkAndSendAchievements(c, "message")
 
 	// Update user profile info
@@ -685,7 +690,68 @@ func (b *Bot) handleText(c tele.Context) error {
 	// Check if summary needs update (async, don't block response)
 	go b.maybeUpdateSummary(userID)
 
-	return replyFn(reply, menu)
+	// 5% chance: send voice reply instead of text (if TTS available and reply is short)
+	voiceSent := false
+	if b.tts != nil && len(reply) < 200 && rand.Intn(100) < 5 {
+		path, ttsErr := b.tts.Synthesize(context.Background(), reply)
+		if ttsErr == nil {
+			// Delete thinking message via replyFn with the text, then also send voice
+			_ = replyFn(reply, menu)
+			audio := &tele.Voice{File: tele.FromDisk(path)}
+			if sendErr := c.Send(audio); sendErr != nil {
+				log.Printf("[%d] tts voice send error: %v", userID, sendErr)
+			} else {
+				voiceSent = true
+			}
+			os.Remove(path)
+		}
+	}
+
+	// Send text reply (if voice was not sent)
+	if !voiceSent {
+		if sendErr := replyFn(reply, menu); sendErr != nil {
+			return sendErr
+		}
+	}
+
+	// Random kaomoji reaction (~8% chance)
+	if features.ShouldReact() {
+		reaction := features.RandomReaction()
+		if err := c.Send(reaction, menu); err != nil {
+			log.Printf("[%d] reaction send error: %v", userID, err)
+		}
+	}
+
+	return nil
+}
+
+func (b *Bot) handleVoiceOut(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /voice", userID)
+
+	if b.tts == nil {
+		return c.Send("TTS not installed. Need edge-tts: pip install edge-tts", menu)
+	}
+
+	payload := c.Message().Payload
+	if payload == "" {
+		payload = "\u041f\u0440\u0438\u0432\u0435\u0442, \u044f \u0442\u0440\u0438\u043a\u0441\u0442\u0435\u0440. \u0418 \u044f \u0443\u043c\u0435\u044e \u0433\u043e\u0432\u043e\u0440\u0438\u0442\u044c."
+	}
+
+	_, stop := b.startThinking(c)
+
+	path, err := b.tts.Synthesize(context.Background(), payload)
+	if err != nil {
+		stop()
+		log.Printf("[%d] tts error: %v", userID, err)
+		return c.Send("\u041d\u0435 \u043f\u043e\u043b\u0443\u0447\u0438\u043b\u043e\u0441\u044c \u043e\u0437\u0432\u0443\u0447\u0438\u0442\u044c. "+features.RandomFallback(), menu)
+	}
+	defer os.Remove(path)
+
+	stop()
+
+	audio := &tele.Voice{File: tele.FromDisk(path)}
+	return c.Send(audio)
 }
 
 func (b *Bot) handleVoice(c tele.Context) error {

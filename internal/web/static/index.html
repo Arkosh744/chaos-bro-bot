@@ -349,12 +349,27 @@
         }
 
         @media (max-width: 768px) {
-            .charts-grid {
-                grid-template-columns: 1fr;
-            }
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
+            .main { padding: 16px; }
+            .nav { flex-wrap: wrap; gap: 2px; }
+            .nav-btn { padding: 6px 12px; font-size: 0.75rem; }
+            .stats-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+            .stat-card { padding: 16px; }
+            .stat-card .stat-value { font-size: 1.8rem; }
+            .charts-grid { grid-template-columns: 1fr; }
+            .achievements-grid { grid-template-columns: 1fr; }
+            .chat-bubble { max-width: 90%; }
+            .fact-item { flex-direction: column; align-items: flex-start; gap: 6px; }
+            .fact-category { min-width: unset; }
+            .setting-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+            .prompt-item { padding: 12px; }
+            .prompt-editor { min-height: 150px; font-size: 0.75rem; }
+            .add-fact-form { flex-direction: column; }
+            .add-fact-form input:first-child { width: 100%; }
+            .users-grid { grid-template-columns: 1fr; }
+            .user-card-actions { flex-wrap: wrap; }
+            .user-card-actions .btn { flex: 1; text-align: center; }
+            .send-message-form { flex-direction: column; }
+            .msg-count-selector { flex-wrap: wrap; }
             .header {
                 flex-direction: column;
                 gap: 12px;
@@ -365,9 +380,14 @@
                 align-items: flex-start;
                 gap: 8px;
             }
-            .users-grid {
-                grid-template-columns: 1fr !important;
-            }
+        }
+
+        @media (max-width: 480px) {
+            .header h1 { font-size: 1.1rem; }
+            .nav-btn { padding: 5px 8px; font-size: 0.7rem; }
+            .stat-card .stat-value { font-size: 1.4rem; }
+            .heatmap { gap: 1px; }
+            .heatmap-cell { min-height: 20px; }
         }
 
         .chart-container {

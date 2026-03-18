@@ -100,6 +100,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/custom-achievements", s.authAPI(s.csrfCheck(s.handleCustomAchievements)))
 	s.mux.HandleFunc("/api/runtime-config", s.authAPI(s.csrfCheck(s.handleRuntimeConfig)))
 
+	// Metrics endpoint — no auth, open for Prometheus scraping
+	s.mux.HandleFunc("/metrics", s.handleMetrics)
+
 	// Static files — protected by auth middleware (cookie or query param)
 	staticFS, err := fs.Sub(staticFiles, "static")
 	if err != nil {

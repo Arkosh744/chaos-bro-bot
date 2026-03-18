@@ -9,6 +9,7 @@ import (
 	"github.com/Arkosh744/chaos-bro-bot/internal/groq"
 	"github.com/Arkosh744/chaos-bro-bot/internal/scheduler"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
+	"github.com/Arkosh744/chaos-bro-bot/internal/tts"
 	"github.com/Arkosh744/chaos-bro-bot/internal/web"
 	tele "gopkg.in/telebot.v4"
 )
@@ -17,6 +18,7 @@ type Bot struct {
 	tg                    *tele.Bot
 	claude                *claude.Client
 	whisper               *groq.WhisperClient
+	tts                   *tts.EdgeTTS
 	store                 *storage.Storage
 	scheduler             *scheduler.Scheduler
 	web                   *web.Server
@@ -87,10 +89,21 @@ func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperCl
 		menuMore.Row(btnMood, btnMirror, btnBack),
 	)
 
+	// Initialize TTS if edge-tts is available
+	var edgeTTS *tts.EdgeTTS
+	t := tts.New("")
+	if t.Available() {
+		edgeTTS = t
+		log.Println("Edge-TTS enabled")
+	} else {
+		log.Println("Edge-TTS not available (install: pip install edge-tts)")
+	}
+
 	b := &Bot{
 		tg:                   tg,
 		claude:               cl,
 		whisper:              whisper,
+		tts:                  edgeTTS,
 		store:                store,
 		ownerID:              ownerID,
 		web:                  webSrv,
@@ -198,6 +211,8 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle("/quest", b.handleQuest)
 	b.tg.Handle("/link", b.handleLink)
 	b.tg.Handle("/unlink", b.handleUnlink)
+
+	b.tg.Handle("/voice", b.handleVoiceOut)
 
 	b.tg.Handle(tele.OnPhoto, b.handlePhoto)
 	b.tg.Handle(tele.OnText, b.handleText)

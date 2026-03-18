@@ -33,3 +33,7 @@
 - [x] [100%] Versioned DB Migrations: schema_version table + transactional migration runner replacing monolithic CREATE TABLE (2026-03-18)
 - [x] [100%] Webhook Mode: optional config-driven Telegram webhook poller (use_webhook, webhook_url, webhook_port) (2026-03-18)
 - [x] [100%] Config Hot-Reload: runtime_config SQLite table + REST API + admin panel UI + bot integration (interject_chance, rate_limit, bargain_chance) (2026-03-18)
+- [x] [100%] Mobile Admin CSS: responsive @media rules for 768px/480px breakpoints + full mobile layout (2026-03-18)
+- [x] [100%] Prometheus Metrics: internal/metrics package + /metrics endpoint (no auth) + Claude latency/errors + active users + handleText instrumentation (2026-03-18)
+- [x] [100%] TTS Voice Output: internal/tts (edge-tts) + /voice command + 5% random voice reply in handleText (2026-03-18)
+- [x] [100%] Kaomoji Reactions: internal/features/reactions.go + 8% random reaction after handleText reply (2026-03-18)

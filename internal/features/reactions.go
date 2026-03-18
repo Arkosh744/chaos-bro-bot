@@ -1,0 +1,31 @@
+package features
+
+import "math/rand"
+
+var reactions = []string{
+	"( \u0361\u00b0 \u035c\u0296 \u0361\u00b0)",
+	"\u00af\\_(\u30c4)_/\u00af",
+	"(\u256f\u00b0\u25a1\u00b0)\u256f\ufe35 \u253b\u2501\u253b",
+	"\u253b\u2500\u253b\u30ce( \u00ba _ \u00ba\u30ce)",
+	"(\u0e07'\u0300-'\u0301)\u0e07",
+	"\u0295\u2022\u1d25\u2022\u0294",
+	"(\u261e\uff9f\u30ee\uff9f)\u261e",
+	"( \u02d8 \u00b3\u02d8)\u2665",
+	"( \u0361\u00b0( \u0361\u00b0 \u035c\u0296( \u0361\u00b0 \u035c\u0296 \u0361\u00b0)\u0296 \u0361\u00b0) \u0361\u00b0)",
+	"\u00af\\_( \u0361\u275b \u035c\u0296 \u0361\u275b)_/\u00af",
+	"(\u30ce\u0ca0\u76ca\u0ca0)\u30ce\u5f61\u253b\u2501\u253b",
+	"\u1555( \u0250\u031b )\u1557",
+	"( \u00b4_\u309d`)",
+	"( \u2256.\u2256)",
+	"\u256d\u2229\u256e(\ufe36\u203f\ufe36)\u256d\u2229\u256e",
+}
+
+// ShouldReact returns true ~8% of the time.
+func ShouldReact() bool {
+	return rand.Intn(100) < 8
+}
+
+// RandomReaction returns a random kaomoji/text reaction.
+func RandomReaction() string {
+	return reactions[rand.Intn(len(reactions))]
+}

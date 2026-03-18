@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Arkosh744/chaos-bro-bot/internal/metrics"
 )
 
 const (
@@ -200,7 +202,13 @@ func (c *Client) AskWithModel(ctx context.Context, model, systemPrompt, userMess
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	metrics.IncrementClaudeCalls()
+	callStart := time.Now()
+
 	if err := cmd.Run(); err != nil {
+		metrics.IncrementClaudeErrors()
+		metrics.RecordClaudeLatency(time.Since(callStart).Milliseconds())
+
 		c.mu.Lock()
 		c.consecutiveFailures++
 		if c.consecutiveFailures >= offlineThreshold && !c.offlineMode {
@@ -211,6 +219,8 @@ func (c *Client) AskWithModel(ctx context.Context, model, systemPrompt, userMess
 		c.mu.Unlock()
 		return "", fmt.Errorf("claude -p: %w (stderr: %s)", err, stderr.String())
 	}
+
+	metrics.RecordClaudeLatency(time.Since(callStart).Milliseconds())
 
 	c.mu.Lock()
 	if c.offlineMode {
