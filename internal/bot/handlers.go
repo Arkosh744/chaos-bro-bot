@@ -66,18 +66,34 @@ func (b *Bot) checkAndSendAchievements(c tele.Context, event string) {
 
 // claudeReply handles the common pattern: rate limit -> start thinking -> call Claude -> handle error -> send reply.
 func (b *Bot) claudeReply(c tele.Context, ask func() (string, error), prefix string) error {
-	if !b.checkRateLimit(c.Sender().ID) {
+	userID := c.Sender().ID
+	if !b.checkRateLimit(userID) {
 		return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+	}
+
+	// Save the user's trigger (command text or button text)
+	trigger := c.Text()
+	if trigger == "" {
+		trigger = "[button]"
+	}
+	if _, err := b.store.SaveMessage(userID, "user", trigger); err != nil {
+		log.Printf("[%d] save trigger error: %v", userID, err)
 	}
 
 	replyFn, stop := b.startThinking(c)
 	result, err := ask()
 	if err != nil {
 		stop()
-		log.Printf("[%d] claude error: %v", c.Sender().ID, err)
+		log.Printf("[%d] claude error: %v", userID, err)
 		return c.Send(prefix+features.RandomFallback(), menu)
 	}
-	b.incrementRateLimit(c.Sender().ID)
+	b.incrementRateLimit(userID)
+
+	// Save bot reply
+	if _, err := b.store.SaveMessage(userID, "bot", prefix+result); err != nil {
+		log.Printf("[%d] save claude reply error: %v", userID, err)
+	}
+
 	return replyFn(prefix+result, menu)
 }
 
@@ -719,6 +735,19 @@ func (b *Bot) handleBreathing(c tele.Context) error {
 	go features.RunBreathing(b.tg, msg, func() {
 		b.checkAndSendAchievements(c, "breathing")
 	})
+
+	return nil
+}
+
+func (b *Bot) handleMeditate(c tele.Context) error {
+	log.Printf("[%d] /meditate", c.Sender().ID)
+
+	msg, err := b.tg.Send(c.Recipient(), "🧘 Приготовься к медитации...")
+	if err != nil {
+		return c.Send("Не получилось. "+features.RandomFallback(), menu)
+	}
+
+	go features.RunMeditation(b.tg, msg, nil)
 
 	return nil
 }

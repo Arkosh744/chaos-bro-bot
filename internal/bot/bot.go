@@ -146,6 +146,7 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle("/anon", b.handleAnon)
 	b.tg.Handle("/habit", b.handleHabit)
 	b.tg.Handle("/sleep", b.handleSleep)
+	b.tg.Handle("/meditate", b.handleMeditate)
 	b.tg.Handle("/top", b.handleTop)
 	b.tg.Handle("/roastme", b.handleRoastMe)
 	b.tg.Handle("/serious", b.handleSerious)
