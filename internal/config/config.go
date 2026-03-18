@@ -92,7 +92,7 @@ func Load() (*Config, error) {
 		cfg.Scheduler.MaxHour = 22
 	}
 	if cfg.Storage.DBPath == "" {
-		cfg.Storage.DBPath = "trickster.db"
+		cfg.Storage.DBPath = "data/trickster.db"
 	}
 	if cfg.Web.Port == 0 {
 		cfg.Web.Port = 8080

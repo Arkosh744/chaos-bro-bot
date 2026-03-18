@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/bot"
@@ -19,6 +20,14 @@ func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config: %v", err)
+	}
+
+	// Ensure data directory exists for DB, backups, tokens
+	dbDir := filepath.Dir(cfg.Storage.DBPath)
+	if dbDir != "" && dbDir != "." {
+		if err := os.MkdirAll(dbDir, 0o755); err != nil {
+			log.Fatalf("create data dir: %v", err)
+		}
 	}
 
 	store, err := storage.New(cfg.Storage.DBPath)

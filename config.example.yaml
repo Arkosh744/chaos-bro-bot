@@ -15,7 +15,7 @@ scheduler:
   max_hour: 22                    # latest hour for random pings (0-23)
 
 storage:
-  db_path: "trickster.db"        # SQLite database path
+  db_path: "data/trickster.db"   # SQLite database path (data/ dir auto-created)
 
 groq:
   api_key: ""                     # Groq API key for Whisper voice transcription (optional)
