@@ -333,6 +333,48 @@ func (s *Scheduler) sendMorningCheck() {
 		}
 	}
 
+	// Weekly challenge: generate on Monday, remind on other days
+	now := time.Now()
+	if now.Weekday() == time.Monday {
+		// Monday: generate new weekly challenge
+		challengeText, chErr := s.claude.Ask(context.Background(), features.WeeklyChallengePrompt, "Придумай недельный челлендж")
+		if chErr != nil {
+			log.Printf("[%d] weekly challenge generate error: %v", s.cfg.OwnerID, chErr)
+		} else {
+			offset := int(now.Weekday()) - int(time.Monday)
+			if offset < 0 {
+				offset += 7
+			}
+			monday := now.AddDate(0, 0, -offset)
+			weekStart := monday.Format("2006-01-02")
+			if err := s.store.SaveWeeklyChallenge(s.cfg.OwnerID, challengeText, weekStart); err != nil {
+				log.Printf("[%d] save weekly challenge error: %v", s.cfg.OwnerID, err)
+			} else {
+				msg := fmt.Sprintf("🏋️ Челлендж недели:\n\n%s\n\n/challenge — прогресс\n/challenge done — отметить день", challengeText)
+				if _, err := s.tg.Send(recipient, msg); err != nil {
+					log.Printf("[%d] send weekly challenge error: %v", s.cfg.OwnerID, err)
+				}
+				log.Printf("[%d] weekly challenge generated", s.cfg.OwnerID)
+			}
+		}
+	} else {
+		// Other days: remind about active challenge if exists
+		challenge, _, completedDays, chErr := s.store.GetCurrentChallenge(s.cfg.OwnerID)
+		if chErr == nil && challenge != "" && completedDays < 7 {
+			progress := ""
+			for i := 0; i < completedDays; i++ {
+				progress += "✅"
+			}
+			for i := 0; i < 7-completedDays; i++ {
+				progress += "⬜"
+			}
+			reminder := fmt.Sprintf("Не забудь про челлендж: %s\n%s (%d/7) /challenge done", challenge, progress, completedDays)
+			if _, err := s.tg.Send(recipient, reminder); err != nil {
+				log.Printf("[%d] send challenge reminder error: %v", s.cfg.OwnerID, err)
+			}
+		}
+	}
+
 	// Pre-generate daily lie so it doesn't slow down handleText
 	lie, truth, lErr := features.GenerateLie(context.Background(), s.claude)
 	if lErr != nil {

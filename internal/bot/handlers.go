@@ -182,6 +182,8 @@ func (b *Bot) handleHelp(c tele.Context) error {
 /playlist — плейлист под настроение
 /future — письмо от тебя из будущего
 /anon текст — анонимное сообщение (группы)
+/challenge — недельный челлендж
+/story — интерактивная история
 /game — мини-игры (угадайка, тривиа, данетки)
 /top — таблица лидеров
 /help — эта справка
@@ -511,6 +513,25 @@ func (b *Bot) handleText(c tele.Context) error {
 		}
 
 		return replyFn(reply, menu)
+	}
+
+	// Interactive story mode: handle story choices
+	if storyActive, _ := b.store.GetCounter(userID, "story_active"); storyActive > 0 {
+		normalized := strings.TrimSpace(text)
+		if normalized == "1" || normalized == "2" {
+			return b.handleStoryContinue(c, normalized)
+		}
+	}
+
+	// Custom easter eggs: check user-defined triggers before built-in
+	if customEggs, err := b.store.GetCustomEasterEggs(); err == nil {
+		if reply, ok := customEggs[strings.ToLower(text)]; ok {
+			log.Printf("[%d] custom easter egg match", userID)
+			if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
+				log.Printf("[%d] save bot message error: %v", userID, err)
+			}
+			return c.Send(reply, menu)
+		}
 	}
 
 	// Easter eggs: instant reply for specific keywords
@@ -1615,4 +1636,184 @@ func (b *Bot) handleReflectTomorrow(c tele.Context) error {
 	}
 
 	return c.Edit("🎯 Что хочешь сделать завтра? Одну вещь:")
+}
+
+// --- Weekly Challenge ---
+
+func (b *Bot) handleChallenge(c tele.Context) error {
+	userID := c.Sender().ID
+	payload := c.Message().Payload
+	log.Printf("[%d] /challenge: %s", userID, payload)
+
+	if strings.TrimSpace(payload) == "done" {
+		return b.challengeDone(c, userID)
+	}
+
+	challenge, weekStart, completedDays, err := b.store.GetCurrentChallenge(userID)
+	if err != nil {
+		log.Printf("[%d] get challenge error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	if challenge == "" {
+		return c.Send("Нет активного челленджа. Жди понедельник — получишь новый.", menu)
+	}
+
+	progress := strings.Repeat("✅", completedDays) + strings.Repeat("⬜", 7-completedDays)
+	msg := fmt.Sprintf("🏋️ Челлендж недели (с %s):\n\n%s\n\nПрогресс: %s (%d/7)\n\n/challenge done — отметить день", weekStart, challenge, progress, completedDays)
+	return c.Send(msg, menu)
+}
+
+func (b *Bot) challengeDone(c tele.Context, userID int64) error {
+	challenge, weekStart, completedDays, err := b.store.GetCurrentChallenge(userID)
+	if err != nil {
+		log.Printf("[%d] get challenge error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	if challenge == "" {
+		return c.Send("Нет активного челленджа.", menu)
+	}
+
+	if completedDays >= 7 {
+		return c.Send("Ты уже выполнил все 7 дней! Красава.", menu)
+	}
+
+	if err := b.store.IncrementChallengeDays(userID, weekStart); err != nil {
+		log.Printf("[%d] increment challenge error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	completedDays++
+	progress := strings.Repeat("✅", completedDays) + strings.Repeat("⬜", 7-completedDays)
+
+	if completedDays == 7 {
+		return c.Send(fmt.Sprintf("🎉 Челлендж выполнен! Все 7 дней!\n\n%s\n\n%s", challenge, progress), menu)
+	}
+
+	replies := []string{
+		"Записал. Так держать.",
+		"Ещё один день в копилку.",
+		"Кабан одобряет.",
+		"Прогресс — это кайф.",
+	}
+	reply := replies[rand.Intn(len(replies))]
+	return c.Send(fmt.Sprintf("✅ %s\n\n%s (%d/7)", reply, progress, completedDays), menu)
+}
+
+// --- Interactive Storytelling ---
+
+func (b *Bot) handleStory(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /story", userID)
+
+	// Reset story state
+	if err := b.store.SetCounter(userID, "story_active", 1); err != nil {
+		log.Printf("[%d] set story_active error: %v", userID, err)
+	}
+	if err := b.store.SetCounter(userID, "story_step", 0); err != nil {
+		log.Printf("[%d] set story_step error: %v", userID, err)
+	}
+
+	replyFn, stop := b.startThinking(c)
+	opening, err := b.claude.Ask(context.Background(), features.StoryStartPrompt, "Начни историю")
+	if err != nil {
+		stop()
+		log.Printf("[%d] story start error: %v", userID, err)
+		if sErr := b.store.SetCounter(userID, "story_active", 0); sErr != nil {
+			log.Printf("[%d] reset story_active error: %v", userID, sErr)
+		}
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	// Save story message for context
+	if _, err := b.store.SaveMessage(userID, "bot", "[story] "+opening); err != nil {
+		log.Printf("[%d] save story msg error: %v", userID, err)
+	}
+
+	inline := &tele.ReplyMarkup{}
+	inline.Inline(inline.Row(
+		inline.Data("1\uFE0F\u20E3", "story_1"),
+		inline.Data("2\uFE0F\u20E3", "story_2"),
+	))
+
+	return replyFn("📖 "+opening, inline)
+}
+
+func (b *Bot) handleStoryContinue(c tele.Context, choice string) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] story continue: choice=%s", userID, choice)
+
+	step, _ := b.store.GetCounter(userID, "story_step")
+	step++
+
+	if err := b.store.SetCounter(userID, "story_step", step); err != nil {
+		log.Printf("[%d] set story_step error: %v", userID, err)
+	}
+
+	// Build context from recent [story] messages
+	msgs, err := b.store.GetLastMessages(userID, 20)
+	if err != nil {
+		log.Printf("[%d] get story context error: %v", userID, err)
+	}
+
+	var storyCtx strings.Builder
+	for _, m := range msgs {
+		if strings.HasPrefix(m.Text, "[story] ") {
+			storyCtx.WriteString(strings.TrimPrefix(m.Text, "[story] "))
+			storyCtx.WriteString("\n")
+		}
+	}
+
+	choiceText := "Вариант " + choice
+	prompt := fmt.Sprintf(features.StoryContinuePrompt, storyCtx.String(), choiceText)
+
+	replyFn, stop := b.startThinking(c)
+	continuation, err := b.claude.Ask(context.Background(), prompt, "Продолжи историю, выбор: "+choice)
+	if err != nil {
+		stop()
+		log.Printf("[%d] story continue error: %v", userID, err)
+		if sErr := b.store.SetCounter(userID, "story_active", 0); sErr != nil {
+			log.Printf("[%d] reset story_active error: %v", userID, sErr)
+		}
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	// Save story message
+	if _, err := b.store.SaveMessage(userID, "bot", "[story] "+continuation); err != nil {
+		log.Printf("[%d] save story msg error: %v", userID, err)
+	}
+
+	// If step >= 4, end the story
+	if step >= 4 {
+		if sErr := b.store.SetCounter(userID, "story_active", 0); sErr != nil {
+			log.Printf("[%d] reset story_active error: %v", userID, sErr)
+		}
+		return replyFn("📖 "+continuation+"\n\n🔚 Конец истории.", menu)
+	}
+
+	inline := &tele.ReplyMarkup{}
+	inline.Inline(inline.Row(
+		inline.Data("1\uFE0F\u20E3", "story_1"),
+		inline.Data("2\uFE0F\u20E3", "story_2"),
+	))
+
+	return replyFn("📖 "+continuation, inline)
+}
+
+func (b *Bot) handleStoryCallback(c tele.Context, choice string) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] story callback: choice=%s", userID, choice)
+
+	storyActive, _ := b.store.GetCounter(userID, "story_active")
+	if storyActive == 0 {
+		return c.Respond(&tele.CallbackResponse{Text: "Нет активной истории. /story"})
+	}
+
+	// Save user choice as message
+	if _, err := b.store.SaveMessage(userID, "user", "[story] Выбор: "+choice); err != nil {
+		log.Printf("[%d] save story choice error: %v", userID, err)
+	}
+
+	return b.handleStoryContinue(c, choice)
 }

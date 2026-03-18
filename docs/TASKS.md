@@ -23,3 +23,6 @@
 - [x] [100%] Technical: Graceful Degradation (Claude offline mode) + SQLite Backup (daily + web endpoint) + Rate Limiting (30/hour per user) (2026-03-17)
 - [x] [100%] Admin Panel: Chat-style conversation viewer + Prompt Editor tab (2026-03-17)
 - [x] [100%] Обновление документации: README.md + config.example.yaml — полное описание всех фич (2026-03-17)
+- [x] [100%] Weekly Challenge: /challenge + /challenge done + scheduler Monday generation + daily reminders (2026-03-18)
+- [x] [100%] Interactive Storytelling: /story + inline buttons 1/2 + step-based continuation + auto-end (2026-03-18)
+- [x] [100%] Custom Easter Eggs Admin: storage CRUD + handleText integration + Web API (GET/POST/DELETE) + Settings UI (2026-03-18)

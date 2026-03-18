@@ -153,6 +153,16 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle(&btnReflectGood, b.handleReflectGood)
 	b.tg.Handle(&btnReflectBad, b.handleReflectBad)
 	b.tg.Handle(&btnReflectTmrw, b.handleReflectTomorrow)
+	// Weekly Challenge
+	b.tg.Handle("/challenge", b.handleChallenge)
+	// Interactive Storytelling
+	b.tg.Handle("/story", b.handleStory)
+	b.tg.Handle(&tele.InlineButton{Unique: "story_1"}, func(c tele.Context) error {
+		return b.handleStoryCallback(c, "1")
+	})
+	b.tg.Handle(&tele.InlineButton{Unique: "story_2"}, func(c tele.Context) error {
+		return b.handleStoryCallback(c, "2")
+	})
 	// Games
 	b.tg.Handle("/game", b.handleGame)
 	b.tg.Handle(&tele.InlineButton{Unique: "game_guess"}, b.handleStartGuess)

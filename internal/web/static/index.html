@@ -1364,6 +1364,17 @@
                     <div class="loading">Загрузка</div>
                 </div>
             </div>
+            <div class="card" style="margin-top: 20px;">
+                <div class="card-title">Custom Easter Eggs</div>
+                <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+                    <input type="text" id="ee-trigger" placeholder="Триггер (текст)" class="setting-input" style="flex:1;min-width:120px;">
+                    <input type="text" id="ee-response" placeholder="Ответ бота" class="setting-input" style="flex:2;min-width:200px;">
+                    <button class="btn btn-success" onclick="addEasterEgg()">Добавить</button>
+                </div>
+                <div id="easter-eggs-list">
+                    <div class="loading">Загрузка</div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1930,6 +1941,81 @@
                     '</div>';
             } catch (err) {
                 console.error('Settings load error:', err);
+            }
+
+            // Also load easter eggs section
+            loadEasterEggs();
+        }
+
+        // Easter Eggs
+        async function loadEasterEggs() {
+            try {
+                const res = await fetch('/api/easter-eggs');
+                const eggs = await res.json();
+                const container = document.getElementById('easter-eggs-list');
+
+                if (!eggs || eggs.length === 0) {
+                    container.innerHTML = '<div style="color:var(--text-dim);font-size:0.85rem;">Нет кастомных Easter Eggs</div>';
+                    return;
+                }
+
+                container.innerHTML = eggs.map(e =>
+                    '<div class="setting-row" style="padding:8px 0;">' +
+                        '<div style="flex:1;">' +
+                            '<span style="color:var(--highlight);font-family:var(--mono);font-size:0.85rem;">' + escapeHtml(e.trigger) + '</span>' +
+                            '<span style="color:var(--text-dim);margin:0 8px;">&rarr;</span>' +
+                            '<span style="font-size:0.85rem;">' + escapeHtml(e.response) + '</span>' +
+                        '</div>' +
+                        '<button class="btn btn-danger" style="padding:4px 10px;font-size:0.75rem;" onclick="deleteEasterEgg(' + e.id + ')">Удалить</button>' +
+                    '</div>'
+                ).join('');
+            } catch (err) {
+                console.error('Easter eggs load error:', err);
+            }
+        }
+
+        async function addEasterEgg() {
+            const trigger = document.getElementById('ee-trigger').value.trim();
+            const response = document.getElementById('ee-response').value.trim();
+            if (!trigger || !response) {
+                showToast('Заполни оба поля');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/easter-eggs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ trigger, response })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    document.getElementById('ee-trigger').value = '';
+                    document.getElementById('ee-response').value = '';
+                    showToast('Easter egg добавлен');
+                    loadEasterEggs();
+                } else if (data.error) {
+                    showToast(data.error);
+                }
+            } catch (err) {
+                console.error('Add easter egg error:', err);
+                showToast('Ошибка добавления');
+            }
+        }
+
+        async function deleteEasterEgg(id) {
+            try {
+                const res = await fetch('/api/easter-eggs?id=' + id, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    showToast('Easter egg удален');
+                    loadEasterEggs();
+                } else if (data.error) {
+                    showToast(data.error);
+                }
+            } catch (err) {
+                console.error('Delete easter egg error:', err);
+                showToast('Ошибка удаления');
             }
         }
 

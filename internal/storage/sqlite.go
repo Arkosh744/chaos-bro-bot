@@ -985,6 +985,111 @@ func (s *Storage) GetReflections(userID int64, days int) ([]Reflection, error) {
 	return refs, nil
 }
 
+// --- Weekly Challenges ---
+
+// SaveWeeklyChallenge stores a weekly challenge for a user.
+func (s *Storage) SaveWeeklyChallenge(userID int64, challenge, weekStart string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO weekly_challenges (user_id, challenge, week_start)
+		VALUES (?, ?, ?)
+		ON CONFLICT(user_id, week_start) DO UPDATE SET challenge = excluded.challenge`,
+		userID, challenge, weekStart,
+	)
+	return err
+}
+
+// GetCurrentChallenge returns the active weekly challenge (current week, Monday-based).
+func (s *Storage) GetCurrentChallenge(userID int64) (challenge string, weekStart string, completedDays int, err error) {
+	now := time.Now()
+	// Calculate Monday of current week
+	offset := int(now.Weekday()) - int(time.Monday)
+	if offset < 0 {
+		offset += 7
+	}
+	monday := now.AddDate(0, 0, -offset)
+	weekStart = monday.Format("2006-01-02")
+
+	err = s.db.QueryRow(
+		"SELECT challenge, week_start, completed_days FROM weekly_challenges WHERE user_id = ? AND week_start = ?",
+		userID, weekStart,
+	).Scan(&challenge, &weekStart, &completedDays)
+	if err == sql.ErrNoRows {
+		return "", weekStart, 0, nil
+	}
+	return challenge, weekStart, completedDays, err
+}
+
+// IncrementChallengeDays increments the completed_days counter for a weekly challenge.
+func (s *Storage) IncrementChallengeDays(userID int64, weekStart string) error {
+	_, err := s.db.Exec(
+		"UPDATE weekly_challenges SET completed_days = completed_days + 1 WHERE user_id = ? AND week_start = ?",
+		userID, weekStart,
+	)
+	return err
+}
+
+// --- Custom Easter Eggs ---
+
+// EasterEggEntry represents a custom easter egg.
+type EasterEggEntry struct {
+	ID       int64
+	Trigger  string
+	Response string
+}
+
+// AddCustomEasterEgg adds a new custom easter egg.
+func (s *Storage) AddCustomEasterEgg(trigger, response string) error {
+	_, err := s.db.Exec(
+		"INSERT INTO custom_easter_eggs (trigger_text, response) VALUES (?, ?)",
+		trigger, response,
+	)
+	return err
+}
+
+// GetCustomEasterEggs returns all active custom easter eggs as a trigger->response map.
+func (s *Storage) GetCustomEasterEggs() (map[string]string, error) {
+	rows, err := s.db.Query("SELECT trigger_text, response FROM custom_easter_eggs WHERE active = 1")
+	if err != nil {
+		return nil, fmt.Errorf("get custom easter eggs: %w", err)
+	}
+	defer rows.Close()
+
+	eggs := make(map[string]string)
+	for rows.Next() {
+		var trigger, response string
+		if err := rows.Scan(&trigger, &response); err != nil {
+			return nil, fmt.Errorf("scan custom easter egg: %w", err)
+		}
+		eggs[trigger] = response
+	}
+	return eggs, nil
+}
+
+// ListCustomEasterEggs returns all custom easter eggs with their IDs.
+func (s *Storage) ListCustomEasterEggs() ([]EasterEggEntry, error) {
+	rows, err := s.db.Query("SELECT id, trigger_text, response FROM custom_easter_eggs WHERE active = 1 ORDER BY id")
+	if err != nil {
+		return nil, fmt.Errorf("list custom easter eggs: %w", err)
+	}
+	defer rows.Close()
+
+	var eggs []EasterEggEntry
+	for rows.Next() {
+		var e EasterEggEntry
+		if err := rows.Scan(&e.ID, &e.Trigger, &e.Response); err != nil {
+			return nil, fmt.Errorf("scan custom easter egg: %w", err)
+		}
+		eggs = append(eggs, e)
+	}
+	return eggs, nil
+}
+
+// DeleteCustomEasterEgg soft-deletes a custom easter egg by ID.
+func (s *Storage) DeleteCustomEasterEgg(id int64) error {
+	_, err := s.db.Exec("UPDATE custom_easter_eggs SET active = 0 WHERE id = ?", id)
+	return err
+}
+
 // --- Prompt Overrides ---
 
 // GetPromptOverride returns the override value for a prompt name, or empty string if not found.

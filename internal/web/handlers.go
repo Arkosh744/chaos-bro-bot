@@ -549,6 +549,78 @@ func (s *Server) handlePrompts(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleEasterEggs handles GET (list), POST (add), and DELETE (remove) for custom easter eggs.
+func (s *Server) handleEasterEggs(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		eggs, err := s.store.ListCustomEasterEggs()
+		if err != nil {
+			log.Printf("web: list easter eggs: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "failed to list easter eggs")
+			return
+		}
+
+		type eggDTO struct {
+			ID       int64  `json:"id"`
+			Trigger  string `json:"trigger"`
+			Response string `json:"response"`
+		}
+
+		result := make([]eggDTO, 0, len(eggs))
+		for _, e := range eggs {
+			result = append(result, eggDTO{
+				ID:       e.ID,
+				Trigger:  e.Trigger,
+				Response: e.Response,
+			})
+		}
+		s.writeJSON(w, result)
+
+	case http.MethodPost:
+		var req struct {
+			Trigger  string `json:"trigger"`
+			Response string `json:"response"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		if req.Trigger == "" || req.Response == "" {
+			s.writeError(w, http.StatusBadRequest, "trigger and response are required")
+			return
+		}
+
+		if err := s.store.AddCustomEasterEgg(req.Trigger, req.Response); err != nil {
+			log.Printf("web: add easter egg: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "failed to add easter egg")
+			return
+		}
+		s.writeJSON(w, map[string]string{"status": "ok"})
+
+	case http.MethodDelete:
+		idStr := r.URL.Query().Get("id")
+		if idStr == "" {
+			s.writeError(w, http.StatusBadRequest, "id is required")
+			return
+		}
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			s.writeError(w, http.StatusBadRequest, "invalid id")
+			return
+		}
+
+		if err := s.store.DeleteCustomEasterEgg(id); err != nil {
+			log.Printf("web: delete easter egg: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "failed to delete easter egg")
+			return
+		}
+		s.writeJSON(w, map[string]string{"status": "ok"})
+
+	default:
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}
+
 // handleBackup creates a database backup and returns it as a downloadable file.
 func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
