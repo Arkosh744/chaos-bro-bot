@@ -12,6 +12,7 @@ type AchievementDef struct {
 	Name  string
 	Emoji string
 	Desc  string
+	Event string // optional: event that triggers this achievement
 }
 
 // Achievements is the full catalog of unlockable achievements.
@@ -32,7 +33,15 @@ var Achievements = map[string]AchievementDef{
 	"mood_10":         {Name: "Бог", Emoji: "\u26A1", Desc: "Оценил настроение на 10"},
 	"mood_1":          {Name: "Дно", Emoji: "\U0001F573\uFE0F", Desc: "Оценил настроение на 1"},
 	"weekend_warrior": {Name: "Воин выходных", Emoji: "\u2694\uFE0F", Desc: "Написал в субботу И воскресенье"},
-	"first_photo":     {Name: "Фотограф", Emoji: "\U0001F4F8", Desc: "Прислал фотку"},
+	"first_photo":      {Name: "Фотограф", Emoji: "\U0001F4F8", Desc: "Прислал фотку"},
+	"first_duel_win":   {Name: "Гладиатор", Emoji: "⚔️", Desc: "Выиграл первую дуэль", Event: "duel_win"},
+	"streak_7":         {Name: "Неделька", Emoji: "🔥", Desc: "7-дневный streak", Event: "streak_7"},
+	"streak_30":        {Name: "Марафонец", Emoji: "🏃", Desc: "30-дневный streak", Event: "streak_30"},
+	"first_game_win":   {Name: "Геймер", Emoji: "🎮", Desc: "Выиграл первую мини-игру", Event: "game_win"},
+	"first_roast":      {Name: "Жареный", Emoji: "🔥", Desc: "Получил первый roast", Event: "roast"},
+	"first_wisdom":     {Name: "Мудрец", Emoji: "🧙", Desc: "Попросил первую мудрость", Event: "wisdom"},
+	"first_horoscope":  {Name: "Звездочёт", Emoji: "⭐", Desc: "Получил первый антигороскоп", Event: "horoscope"},
+	"capsule_received": {Name: "Путешественник", Emoji: "⏳", Desc: "Получил капсулу времени", Event: "capsule_received"},
 }
 
 // CheckAchievements checks and unlocks achievements based on event type.
@@ -102,6 +111,22 @@ func CheckAchievements(store *storage.Storage, userID int64, event string) []str
 		check("mood_1")
 	case "photo":
 		check("first_photo")
+	case "duel_win":
+		check("first_duel_win")
+	case "streak_7":
+		check("streak_7")
+	case "streak_30":
+		check("streak_30")
+	case "game_win":
+		check("first_game_win")
+	case "roast":
+		check("first_roast")
+	case "wisdom":
+		check("first_wisdom")
+	case "horoscope":
+		check("first_horoscope")
+	case "capsule_received":
+		check("capsule_received")
 	}
 
 	// Check custom achievements from DB

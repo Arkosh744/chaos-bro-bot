@@ -246,6 +246,9 @@ func (b *Bot) handleTriviaAnswer(c tele.Context, letter string) error {
 			log.Printf("[%d] trivia callback error: %v", userID, err)
 		}
 
+		// Award game_win achievement on first correct trivia answer
+		b.checkAndSendAchievements(c, "game_win")
+
 		return b.sendTriviaQuestion(c, userID)
 	}
 

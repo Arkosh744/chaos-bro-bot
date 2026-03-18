@@ -45,8 +45,8 @@ func (c *Client) IsOffline() bool {
 // dangerousPatterns are phrases that indicate prompt injection attempts
 // to make Claude execute system commands or access files.
 var dangerousPatterns = []string{
-	"выполни команду",
-	"execute command",
+	"выполни",
+	"execute",
 	"run command",
 	"запусти команду",
 	"system(",
@@ -71,6 +71,7 @@ var dangerousPatterns = []string{
 	"$(rm",
 	"используй bash",
 	"use bash",
+	"bash",
 	"use the terminal",
 	"open a shell",
 	"access the file",
@@ -125,8 +126,8 @@ var outputDangerousPatterns = []string{
 	"TELEGRAM_TOKEN",
 	"api_key:",
 	"auth_token:",
-	"gsk_",           // Groq API key prefix
-	"AAE",            // Telegram bot token prefix pattern
+	"gsk_", // Groq API key prefix
+	"AAE",  // Telegram bot token prefix pattern
 	"BEGIN RSA",
 	"BEGIN PRIVATE",
 }
@@ -188,7 +189,7 @@ func (c *Client) AskWithModel(ctx context.Context, model, systemPrompt, userMess
 		"--model", model,
 		"--output-format", "text",
 		"--max-turns", "1",
-		"--tools", "",               // disable ALL tools (Bash, Edit, Read, Write etc.)
+		"--tools", "", // disable ALL tools (Bash, Edit, Read, Write etc.)
 		"--permission-mode", "plan", // read-only mode as extra safety layer
 	}
 	if systemPrompt != "" {

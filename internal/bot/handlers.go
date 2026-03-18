@@ -204,6 +204,8 @@ func (b *Bot) handleHelp(c tele.Context) error {
 /roastme — бот roast'ит себя (14д)
 /serious — серьёзный ответ (30д)
 
+*Меню:* ➡️ Ещё — доп. кнопки, ⬅️ Назад — главное меню
+
 *Просто пиши* — трикстер ответит с характером`
 	return c.Send(help, menu, tele.ModeMarkdown)
 }
@@ -544,9 +546,21 @@ func (b *Bot) handleText(c tele.Context) error {
 
 	// Interactive story mode: handle story choices
 	if storyActive, _ := b.store.GetCounter(userID, "story_active"); storyActive > 0 {
-		normalized := strings.TrimSpace(text)
-		if normalized == "1" || normalized == "2" {
-			return b.handleStoryContinue(c, normalized)
+		choice := strings.TrimSpace(strings.ToLower(text))
+		isChoice1 := choice == "1" || choice == "первый" || choice == "один" || choice == "а"
+		isChoice2 := choice == "2" || choice == "второй" || choice == "два" || choice == "б"
+
+		if isChoice1 {
+			return b.handleStoryContinue(c, "1")
+		} else if isChoice2 {
+			return b.handleStoryContinue(c, "2")
+		} else {
+			// Not a valid choice — abort story
+			b.store.SetCounter(userID, "story_active", 0)
+			if _, err := b.store.SaveMessage(userID, "bot", "История прервана. Напиши /story чтобы начать новую."); err != nil {
+				log.Printf("[%d] save story abort error: %v", userID, err)
+			}
+			return c.Send("История прервана. Напиши /story чтобы начать новую.", menu)
 		}
 	}
 
@@ -701,6 +715,13 @@ func (b *Bot) handleText(c tele.Context) error {
 	// 5% chance: send voice reply instead of text (if TTS available and reply is short)
 	voiceSent := false
 	if b.tts != nil && len(reply) < 200 && rand.Intn(100) < 5 {
+		// First-time TTS warning
+		warned, _ := b.store.GetCounter(userID, "tts_warned")
+		if warned == 0 {
+			_ = c.Send("🔊 _Иногда буду отвечать голосом. Наушники наготове._", menu, tele.ModeMarkdown)
+			b.store.SetCounter(userID, "tts_warned", 1)
+		}
+
 		path, ttsErr := b.tts.Synthesize(context.Background(), reply)
 		if ttsErr == nil {
 			// Delete thinking message via replyFn with the text, then also send voice
@@ -1052,6 +1073,7 @@ func buildMoodASCII(entries []storage.MoodEntry) string {
 func (b *Bot) handleRoast(c tele.Context) error {
 	userID := c.Sender().ID
 	log.Printf("[%d] /roast", userID)
+	defer b.checkAndSendAchievements(c, "roast")
 
 	userCtx := b.buildUserContext(userID)
 	prompt := fmt.Sprintf(features.RoastPrompt, userCtx)
@@ -1063,6 +1085,7 @@ func (b *Bot) handleRoast(c tele.Context) error {
 
 func (b *Bot) handleWisdom(c tele.Context) error {
 	log.Printf("[%d] /wisdom", c.Sender().ID)
+	defer b.checkAndSendAchievements(c, "wisdom")
 
 	return b.claudeReply(c, func() (string, error) {
 		return b.claude.Ask(context.Background(), features.WisdomPrompt, "Дай мудрость")
@@ -1071,6 +1094,7 @@ func (b *Bot) handleWisdom(c tele.Context) error {
 
 func (b *Bot) handleHoroscope(c tele.Context) error {
 	log.Printf("[%d] /horoscope", c.Sender().ID)
+	defer b.checkAndSendAchievements(c, "horoscope")
 
 	today := time.Now().Format("2 January 2006")
 	prompt := fmt.Sprintf(features.AntiHoroscopePrompt, today)
@@ -1356,6 +1380,14 @@ func (b *Bot) checkStreak(c tele.Context) {
 		if err := c.Send(milestone, menu); err != nil {
 			log.Printf("[%d] streak milestone send error: %v", userID, err)
 		}
+	}
+
+	// Streak achievements
+	if streak == 7 {
+		b.checkAndSendAchievements(c, "streak_7")
+	}
+	if streak == 30 {
+		b.checkAndSendAchievements(c, "streak_30")
 	}
 }
 

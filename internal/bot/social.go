@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"strings"
 	"time"
 
@@ -161,6 +162,7 @@ func (b *Bot) judgeDuel(c tele.Context, duel *storage.Duel) {
 	}
 
 	// Parse result: ПОБЕДИТЕЛЬ|N|explanation
+	result = strings.TrimSpace(strings.ToUpper(result))
 	var winnerNum int
 	var explanation string
 	parts := strings.SplitN(result, "|", 3)
@@ -195,12 +197,32 @@ func (b *Bot) judgeDuel(c tele.Context, duel *storage.Duel) {
 		winnerID = duel.OpponentID
 		winnerName = opponentFirst
 	default:
-		winnerID = 0
-		winnerName = "Никто (ничья)"
+		// Parse failed — pick random winner as fallback
+		if rand.Intn(2) == 0 {
+			winnerID = duel.ChallengerID
+			winnerName = challengerFirst
+		} else {
+			winnerID = duel.OpponentID
+			winnerName = opponentFirst
+		}
+		log.Printf("duel judge parse failed, random winner: %d", winnerID)
+		if explanation == "" {
+			explanation = "Судья не смог решить, победитель выбран случайно."
+		}
 	}
 
 	if err := b.store.CompleteDuel(duel.ID, winnerID); err != nil {
 		log.Printf("[%d] complete duel error: %v", chatID, err)
+	}
+
+	// Award duel_win achievement to the winner
+	if winnerID != 0 {
+		unlocked := features.CheckAchievements(b.store, winnerID, "duel_win")
+		for _, achMsg := range unlocked {
+			if _, sendErr := b.tg.Send(&tele.Chat{ID: chatID}, achMsg); sendErr != nil {
+				log.Printf("[%d] duel achievement send error: %v", chatID, sendErr)
+			}
+		}
 	}
 
 	msg := fmt.Sprintf("Результаты дуэли!\n\n"+
@@ -269,6 +291,13 @@ func (b *Bot) handleQuestAnswer(c tele.Context) bool {
 
 	text := c.Text()
 	userID := c.Sender().ID
+
+	// Throttle: only judge every 3 messages to save Claude calls
+	countKey := fmt.Sprintf("quest_msgs_%d", quest.ID)
+	count, _ := b.store.IncrementCounter(chatID, countKey)
+	if count%3 != 0 {
+		return false // skip judging this message
+	}
 
 	// Ask Claude to judge if the answer completes the quest
 	judgePrompt := fmt.Sprintf(features.GroupQuestJudgePrompt, quest.Quest, text)

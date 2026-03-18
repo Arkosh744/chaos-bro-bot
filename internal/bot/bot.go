@@ -142,7 +142,7 @@ func (b *Bot) registerHandlers() {
 		return c.Send("🎭 Дополнительные возможности:", menuMore)
 	})
 	b.tg.Handle(&btnBack, func(c tele.Context) error {
-		return c.Send("👌", menu)
+		return c.Send("Главное меню:", menu)
 	})
 	b.tg.Handle("/capsule", b.handleCapsule)
 	for i := 1; i <= 10; i++ {
