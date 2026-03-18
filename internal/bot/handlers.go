@@ -965,7 +965,7 @@ func (b *Bot) handleRoast(c tele.Context) error {
 	prompt := fmt.Sprintf(features.RoastPrompt, userCtx)
 
 	return b.claudeReply(c, func() (string, error) {
-		return b.claude.Ask(context.Background(), prompt, "Зароасти меня")
+		return b.claude.AskWithModel(context.Background(), b.smartModel, prompt, "Зароасти меня")
 	}, "")
 }
 
@@ -1008,7 +1008,7 @@ func (b *Bot) handleFuture(c tele.Context) error {
 	prompt := fmt.Sprintf(features.FutureLetterPrompt, userCtx)
 
 	return b.claudeReply(c, func() (string, error) {
-		return b.claude.Ask(context.Background(), prompt, "Напиши письмо из будущего")
+		return b.claude.AskWithModel(context.Background(), b.smartModel, prompt, "Напиши письмо из будущего")
 	}, "\U0001F4E8 Письмо из будущего:\n\n")
 }
 
@@ -1597,7 +1597,7 @@ func (b *Bot) handleSerious(c tele.Context) error {
 	}
 
 	return b.claudeReply(c, func() (string, error) {
-		return b.claude.Ask(context.Background(),
+		return b.claude.AskWithModel(context.Background(), b.smartModel,
 			"Ты мудрый, серьёзный собеседник. Без сарказма, без шуток. Отвечай вдумчиво, по-человечески, с эмпатией. На русском. 2-4 предложения.",
 			payload)
 	}, "🎩 ")
@@ -1716,7 +1716,7 @@ func (b *Bot) handleStory(c tele.Context) error {
 	}
 
 	replyFn, stop := b.startThinking(c)
-	opening, err := b.claude.Ask(context.Background(), features.StoryStartPrompt, "Начни историю")
+	opening, err := b.claude.AskWithModel(context.Background(), b.smartModel, features.StoryStartPrompt, "Начни историю")
 	if err != nil {
 		stop()
 		log.Printf("[%d] story start error: %v", userID, err)
@@ -1769,7 +1769,7 @@ func (b *Bot) handleStoryContinue(c tele.Context, choice string) error {
 	prompt := fmt.Sprintf(features.StoryContinuePrompt, storyCtx.String(), choiceText)
 
 	replyFn, stop := b.startThinking(c)
-	continuation, err := b.claude.Ask(context.Background(), prompt, "Продолжи историю, выбор: "+choice)
+	continuation, err := b.claude.AskWithModel(context.Background(), b.smartModel, prompt, "Продолжи историю, выбор: "+choice)
 	if err != nil {
 		stop()
 		log.Printf("[%d] story continue error: %v", userID, err)

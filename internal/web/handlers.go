@@ -276,6 +276,22 @@ func (s *Server) handleAchievements(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Append custom achievements
+	customAchs, err := s.store.GetActiveCustomAchievements()
+	if err != nil {
+		log.Printf("web: get custom achievements: %v", err)
+	}
+	for _, ca := range customAchs {
+		key := fmt.Sprintf("custom_%d", ca.ID)
+		result = append(result, achDTO{
+			Key:      key,
+			Name:     ca.Name,
+			Emoji:    ca.Emoji,
+			Desc:     ca.Description,
+			Unlocked: unlockedSet[key],
+		})
+	}
+
 	s.writeJSON(w, result)
 }
 
@@ -651,4 +667,195 @@ func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	http.ServeFile(w, r, destPath)
+}
+
+// handleAnalytics returns comprehensive analytics for a user.
+func (s *Server) handleAnalytics(w http.ResponseWriter, r *http.Request) {
+	uid := s.getUserID(r)
+
+	// Messages by day (last 30 days)
+	messagesByDay, err := s.store.GetMessagesByDay(uid, 30)
+	if err != nil {
+		log.Printf("web: get messages by day: %v", err)
+	}
+	type dayCountDTO struct {
+		Date  string `json:"date"`
+		Count int    `json:"count"`
+	}
+	daysResult := make([]dayCountDTO, 0, len(messagesByDay))
+	for _, d := range messagesByDay {
+		daysResult = append(daysResult, dayCountDTO{Date: d.Date, Count: d.Count})
+	}
+
+	// Top commands
+	topCommands, err := s.store.GetTopCommands(uid, 10)
+	if err != nil {
+		log.Printf("web: get top commands: %v", err)
+	}
+	type cmdCountDTO struct {
+		Command string `json:"command"`
+		Count   int    `json:"count"`
+	}
+	cmdsResult := make([]cmdCountDTO, 0, len(topCommands))
+	for _, c := range topCommands {
+		cmdsResult = append(cmdsResult, cmdCountDTO{Command: c.Command, Count: c.Count})
+	}
+
+	// Activity streak (from counters)
+	streak, _ := s.store.GetCounter(uid, "streak_days")
+
+	// Average mood over 30 days
+	moodEntries, err := s.store.GetMoodHistory(uid, 30)
+	if err != nil {
+		log.Printf("web: get mood history for analytics: %v", err)
+	}
+	var avgMood float64
+	if len(moodEntries) > 0 {
+		total := 0
+		for _, e := range moodEntries {
+			total += e.Score
+		}
+		avgMood = float64(total) / float64(len(moodEntries))
+	}
+
+	// Most active hour
+	hourly, err := s.store.GetHourlyActivity(uid)
+	if err != nil {
+		log.Printf("web: get hourly for analytics: %v", err)
+	}
+	mostActiveHour := 0
+	maxCount := 0
+	for _, h := range hourly {
+		if h.Count > maxCount {
+			maxCount = h.Count
+			mostActiveHour = h.Hour
+		}
+	}
+
+	// Average word count
+	avgWords, err := s.store.GetAverageWordCount(uid)
+	if err != nil {
+		log.Printf("web: get avg word count: %v", err)
+	}
+
+	// Response time average: approximate by looking at pairs of user/bot messages
+	var responseTimeAvg float64
+	msgs, err := s.store.GetLastMessages(uid, 200)
+	if err != nil {
+		log.Printf("web: get messages for response time: %v", err)
+	} else {
+		var totalDuration float64
+		var count int
+		for i := 1; i < len(msgs); i++ {
+			if msgs[i-1].Role == "user" && msgs[i].Role == "bot" {
+				diff := msgs[i].CreatedAt.Sub(msgs[i-1].CreatedAt).Seconds()
+				if diff > 0 && diff < 300 { // Only count if < 5 min
+					totalDuration += diff
+					count++
+				}
+			}
+		}
+		if count > 0 {
+			responseTimeAvg = totalDuration / float64(count)
+		}
+	}
+
+	s.writeJSON(w, map[string]any{
+		"messages_by_day":   daysResult,
+		"top_commands":      cmdsResult,
+		"activity_streak":   streak,
+		"avg_mood":          avgMood,
+		"response_time_avg": responseTimeAvg,
+		"most_active_hour":  mostActiveHour,
+		"word_count_avg":    avgWords,
+	})
+}
+
+// handleCustomAchievements handles GET (list), POST (add), and DELETE (remove) for custom achievements.
+func (s *Server) handleCustomAchievements(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		achievements, err := s.store.ListCustomAchievements()
+		if err != nil {
+			log.Printf("web: list custom achievements: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "failed to list custom achievements")
+			return
+		}
+
+		type achDTO struct {
+			ID          int64  `json:"id"`
+			Name        string `json:"name"`
+			Emoji       string `json:"emoji"`
+			Description string `json:"description"`
+			Event       string `json:"event"`
+			Threshold   int    `json:"threshold"`
+			Active      bool   `json:"active"`
+		}
+
+		result := make([]achDTO, 0, len(achievements))
+		for _, a := range achievements {
+			result = append(result, achDTO{
+				ID:          a.ID,
+				Name:        a.Name,
+				Emoji:       a.Emoji,
+				Description: a.Description,
+				Event:       a.Event,
+				Threshold:   a.Threshold,
+				Active:      a.Active,
+			})
+		}
+		s.writeJSON(w, result)
+
+	case http.MethodPost:
+		var req struct {
+			Name        string `json:"name"`
+			Emoji       string `json:"emoji"`
+			Description string `json:"description"`
+			Event       string `json:"event"`
+			Threshold   int    `json:"threshold"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		if req.Name == "" || req.Description == "" || req.Event == "" {
+			s.writeError(w, http.StatusBadRequest, "name, description, and event are required")
+			return
+		}
+		if req.Emoji == "" {
+			req.Emoji = "\U0001F3C6"
+		}
+		if req.Threshold < 1 {
+			req.Threshold = 1
+		}
+
+		if err := s.store.AddCustomAchievement(req.Name, req.Emoji, req.Description, req.Event, req.Threshold); err != nil {
+			log.Printf("web: add custom achievement: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "failed to add custom achievement")
+			return
+		}
+		s.writeJSON(w, map[string]string{"status": "ok"})
+
+	case http.MethodDelete:
+		idStr := r.URL.Query().Get("id")
+		if idStr == "" {
+			s.writeError(w, http.StatusBadRequest, "id is required")
+			return
+		}
+		id, err := strconv.ParseInt(idStr, 10, 64)
+		if err != nil {
+			s.writeError(w, http.StatusBadRequest, "invalid id")
+			return
+		}
+
+		if err := s.store.DeleteCustomAchievement(id); err != nil {
+			log.Printf("web: delete custom achievement: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "failed to delete custom achievement")
+			return
+		}
+		s.writeJSON(w, map[string]string{"status": "ok"})
+
+	default:
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
 }

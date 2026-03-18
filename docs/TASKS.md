@@ -26,3 +26,6 @@
 - [x] [100%] Weekly Challenge: /challenge + /challenge done + scheduler Monday generation + daily reminders (2026-03-18)
 - [x] [100%] Interactive Storytelling: /story + inline buttons 1/2 + step-based continuation + auto-end (2026-03-18)
 - [x] [100%] Custom Easter Eggs Admin: storage CRUD + handleText integration + Web API (GET/POST/DELETE) + Settings UI (2026-03-18)
+- [x] [100%] Multi-Model Selection: AskWithModel() + FastModel/SmartModel config + smart model for roast/story/future/serious (2026-03-18)
+- [x] [100%] Analytics Dashboard: /api/analytics endpoint + Analytics tab with Chart.js (messages/day bar + commands pie + stat cards) (2026-03-18)
+- [x] [100%] Achievement Editor: custom_achievements table + CRUD API + CheckAchievements integration + Admin UI (2026-03-18)

@@ -104,5 +104,33 @@ func CheckAchievements(store *storage.Storage, userID int64, event string) []str
 		check("first_photo")
 	}
 
+	// Check custom achievements from DB
+	customAchs, err := store.GetActiveCustomAchievements()
+	if err == nil {
+		for _, ca := range customAchs {
+			if ca.Event != event {
+				continue
+			}
+			// Check threshold against the event counter
+			counterName := event + "s"
+			if event == "message" {
+				counterName = "messages"
+			}
+			count, cErr := store.GetCounter(userID, counterName)
+			if cErr != nil {
+				// Counter may not exist; treat as 1 for one-shot events
+				count = 1
+			}
+			if count >= ca.Threshold {
+				key := fmt.Sprintf("custom_%d", ca.ID)
+				isNew, uErr := store.UnlockAchievement(userID, key)
+				if uErr != nil || !isNew {
+					continue
+				}
+				unlocked = append(unlocked, fmt.Sprintf("\U0001F3C6 Ачивка: %s %s — %s", ca.Emoji, ca.Name, ca.Description))
+			}
+		}
+	}
+
 	return unlocked
 }

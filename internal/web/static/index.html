@@ -1240,6 +1240,7 @@
         </div>
         <nav class="nav">
             <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
+            <button class="nav-btn" data-tab="analytics">Analytics</button>
             <button class="nav-btn" data-tab="users">Users</button>
             <button class="nav-btn" data-tab="profile">Profile</button>
             <button class="nav-btn" data-tab="achievements">Achievements</button>
@@ -1285,6 +1286,47 @@
             </div>
         </div>
 
+        <!-- Analytics -->
+        <div id="tab-analytics" class="tab-content">
+            <div class="stats-grid">
+                <div class="card stat-card highlight-red">
+                    <div class="stat-value" id="analytics-streak">-</div>
+                    <div class="stat-label">Streak (дней)</div>
+                </div>
+                <div class="card stat-card highlight-blue">
+                    <div class="stat-value" id="analytics-avg-mood">-</div>
+                    <div class="stat-label">Среднее настроение</div>
+                </div>
+                <div class="card stat-card highlight-green">
+                    <div class="stat-value" id="analytics-active-hour">-</div>
+                    <div class="stat-label">Самый активный час</div>
+                </div>
+                <div class="card stat-card" style="border-left: 3px solid #a855f7;">
+                    <div class="stat-value" id="analytics-avg-words">-</div>
+                    <div class="stat-label">Слов в сообщении</div>
+                </div>
+                <div class="card stat-card" style="border-left: 3px solid #f59e0b;">
+                    <div class="stat-value" id="analytics-resp-time">-</div>
+                    <div class="stat-label">Ответ бота (сек)</div>
+                </div>
+            </div>
+
+            <div class="charts-grid">
+                <div class="card">
+                    <div class="card-title">Сообщений в день (30 дней)</div>
+                    <div class="chart-container">
+                        <canvas id="analytics-messages-chart"></canvas>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Популярные команды</div>
+                    <div class="chart-container">
+                        <canvas id="analytics-commands-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Users -->
         <div id="tab-users" class="tab-content">
             <div class="card" style="margin-bottom: 24px;">
@@ -1321,6 +1363,45 @@
             <div class="achievement-counter" id="achievement-counter"></div>
             <div id="achievements-container" class="achievements-grid">
                 <div class="loading">Загрузка</div>
+            </div>
+            <div class="card" style="margin-top: 24px;">
+                <div class="card-title">Custom Achievements</div>
+                <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:end;">
+                    <div style="flex:1;min-width:120px;">
+                        <label style="font-size:0.7rem;color:var(--text-dim);display:block;margin-bottom:4px;">Название</label>
+                        <input type="text" id="ca-name" placeholder="Название" class="setting-input" style="width:100%;">
+                    </div>
+                    <div style="width:60px;">
+                        <label style="font-size:0.7rem;color:var(--text-dim);display:block;margin-bottom:4px;">Emoji</label>
+                        <input type="text" id="ca-emoji" placeholder="&#127942;" class="setting-input" style="width:100%;" value="&#127942;">
+                    </div>
+                    <div style="flex:2;min-width:150px;">
+                        <label style="font-size:0.7rem;color:var(--text-dim);display:block;margin-bottom:4px;">Описание</label>
+                        <input type="text" id="ca-desc" placeholder="Описание достижения" class="setting-input" style="width:100%;">
+                    </div>
+                    <div style="width:120px;">
+                        <label style="font-size:0.7rem;color:var(--text-dim);display:block;margin-bottom:4px;">Событие</label>
+                        <select id="ca-event" class="setting-input" style="width:100%;padding:8px;">
+                            <option value="message">message</option>
+                            <option value="chaos">chaos</option>
+                            <option value="grounding">grounding</option>
+                            <option value="breathing">breathing</option>
+                            <option value="prediction">prediction</option>
+                            <option value="capsule">capsule</option>
+                            <option value="voice">voice</option>
+                            <option value="photo">photo</option>
+                            <option value="easter_egg">easter_egg</option>
+                        </select>
+                    </div>
+                    <div style="width:80px;">
+                        <label style="font-size:0.7rem;color:var(--text-dim);display:block;margin-bottom:4px;">Порог</label>
+                        <input type="number" id="ca-threshold" placeholder="1" class="setting-input" style="width:100%;" value="1" min="1">
+                    </div>
+                    <button class="btn btn-success" onclick="addCustomAchievement()">Добавить</button>
+                </div>
+                <div id="custom-achievements-list">
+                    <div class="loading">Загрузка</div>
+                </div>
             </div>
         </div>
 
@@ -2268,13 +2349,174 @@
             }
         }
 
+        // --- Analytics ---
+        let analyticsMessagesChart = null;
+        let analyticsCommandsChart = null;
+
+        async function loadAnalytics() {
+            try {
+                const res = await fetch('/api/analytics' + userQuery());
+                const data = await res.json();
+
+                // Stat cards
+                document.getElementById('analytics-streak').textContent = data.activity_streak || 0;
+                document.getElementById('analytics-avg-mood').textContent = data.avg_mood ? data.avg_mood.toFixed(1) : '-';
+                document.getElementById('analytics-active-hour').textContent = data.most_active_hour + ':00';
+                document.getElementById('analytics-avg-words').textContent = data.word_count_avg ? data.word_count_avg.toFixed(1) : '-';
+                document.getElementById('analytics-resp-time').textContent = data.response_time_avg ? data.response_time_avg.toFixed(1) : '-';
+
+                // Messages by day bar chart
+                const msgCanvas = document.getElementById('analytics-messages-chart');
+                if (analyticsMessagesChart) analyticsMessagesChart.destroy();
+
+                const days = data.messages_by_day || [];
+                analyticsMessagesChart = new Chart(msgCanvas, {
+                    type: 'bar',
+                    data: {
+                        labels: days.map(d => d.date.slice(5)),
+                        datasets: [{
+                            label: 'Сообщений',
+                            data: days.map(d => d.count),
+                            backgroundColor: 'rgba(233, 69, 96, 0.6)',
+                            borderColor: 'rgba(233, 69, 96, 1)',
+                            borderWidth: 1,
+                            borderRadius: 4,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { display: false } },
+                        scales: {
+                            x: { ticks: { color: '#8892a4', maxRotation: 45, font: { size: 10 } }, grid: { display: false } },
+                            y: { beginAtZero: true, ticks: { color: '#8892a4' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+                        }
+                    }
+                });
+
+                // Top commands pie chart
+                const cmdCanvas = document.getElementById('analytics-commands-chart');
+                if (analyticsCommandsChart) analyticsCommandsChart.destroy();
+
+                const cmds = data.top_commands || [];
+                const pieColors = [
+                    '#e94560', '#0f3460', '#00d68f', '#a855f7', '#f59e0b',
+                    '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1'
+                ];
+                analyticsCommandsChart = new Chart(cmdCanvas, {
+                    type: 'doughnut',
+                    data: {
+                        labels: cmds.map(c => c.command),
+                        datasets: [{
+                            data: cmds.map(c => c.count),
+                            backgroundColor: pieColors.slice(0, cmds.length),
+                            borderWidth: 0,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                                labels: { color: '#e0e0e0', font: { size: 11 }, padding: 12, usePointStyle: true, pointStyleWidth: 10 }
+                            }
+                        }
+                    }
+                });
+            } catch (err) {
+                console.error('Analytics load error:', err);
+            }
+        }
+
+        // --- Custom Achievements ---
+        async function loadCustomAchievements() {
+            try {
+                const res = await fetch('/api/custom-achievements');
+                const achs = await res.json();
+                const container = document.getElementById('custom-achievements-list');
+
+                if (!achs || achs.length === 0) {
+                    container.innerHTML = '<div style="color:var(--text-dim);font-size:0.85rem;">Нет кастомных достижений</div>';
+                    return;
+                }
+
+                container.innerHTML = achs.filter(a => a.active).map(a =>
+                    '<div class="setting-row" style="padding:8px 0;">' +
+                        '<div style="flex:1;">' +
+                            '<span style="font-size:1.1rem;margin-right:6px;">' + escapeHtml(a.emoji) + '</span>' +
+                            '<span style="color:var(--text-bright);font-weight:500;">' + escapeHtml(a.name) + '</span>' +
+                            '<span style="color:var(--text-dim);margin:0 8px;font-size:0.8rem;">' + escapeHtml(a.description) + '</span>' +
+                            '<span style="color:var(--text-dim);font-family:var(--mono);font-size:0.75rem;">[' + escapeHtml(a.event) + ' >= ' + a.threshold + ']</span>' +
+                        '</div>' +
+                        '<button class="btn btn-danger" style="padding:4px 10px;font-size:0.75rem;" onclick="deleteCustomAchievement(' + a.id + ')">Удалить</button>' +
+                    '</div>'
+                ).join('');
+            } catch (err) {
+                console.error('Custom achievements load error:', err);
+            }
+        }
+
+        async function addCustomAchievement() {
+            const name = document.getElementById('ca-name').value.trim();
+            const emoji = document.getElementById('ca-emoji').value.trim() || '\u{1F3C6}';
+            const desc = document.getElementById('ca-desc').value.trim();
+            const event = document.getElementById('ca-event').value;
+            const threshold = parseInt(document.getElementById('ca-threshold').value) || 1;
+
+            if (!name || !desc) {
+                showToast('Заполни название и описание');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/custom-achievements', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, emoji, description: desc, event, threshold })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    document.getElementById('ca-name').value = '';
+                    document.getElementById('ca-desc').value = '';
+                    document.getElementById('ca-threshold').value = '1';
+                    showToast('Достижение добавлено');
+                    loadCustomAchievements();
+                    loadAchievements();
+                } else if (data.error) {
+                    showToast(data.error);
+                }
+            } catch (err) {
+                console.error('Add custom achievement error:', err);
+                showToast('Ошибка добавления');
+            }
+        }
+
+        async function deleteCustomAchievement(id) {
+            try {
+                const res = await fetch('/api/custom-achievements?id=' + id, { method: 'DELETE' });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    showToast('Достижение удалено');
+                    loadCustomAchievements();
+                    loadAchievements();
+                } else if (data.error) {
+                    showToast(data.error);
+                }
+            } catch (err) {
+                console.error('Delete custom achievement error:', err);
+                showToast('Ошибка удаления');
+            }
+        }
+
         // Tab data loader
         function loadTabData(tab) {
             switch (tab) {
                 case 'dashboard': loadDashboard(); break;
+                case 'analytics': loadAnalytics(); break;
                 case 'users': loadUsers(); break;
                 case 'profile': loadProfile(); break;
-                case 'achievements': loadAchievements(); break;
+                case 'achievements': loadAchievements(); loadCustomAchievements(); break;
                 case 'messages': loadMessages(); break;
                 case 'prompts': loadPrompts(); break;
                 case 'settings': loadSettings(); break;

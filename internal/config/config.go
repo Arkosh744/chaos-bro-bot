@@ -14,8 +14,10 @@ type Config struct {
 		OwnerID int64  `yaml:"owner_id"`
 	} `yaml:"telegram"`
 	Claude struct {
-		Model   string        `yaml:"model"`
-		Timeout time.Duration `yaml:"timeout"`
+		Model      string        `yaml:"model"`
+		FastModel  string        `yaml:"fast_model"`
+		SmartModel string        `yaml:"smart_model"`
+		Timeout    time.Duration `yaml:"timeout"`
 	} `yaml:"claude"`
 	Scheduler struct {
 		Enabled bool `yaml:"enabled"`
@@ -73,6 +75,12 @@ func Load() (*Config, error) {
 	// Defaults
 	if cfg.Claude.Model == "" {
 		cfg.Claude.Model = "sonnet"
+	}
+	if cfg.Claude.FastModel == "" {
+		cfg.Claude.FastModel = cfg.Claude.Model
+	}
+	if cfg.Claude.SmartModel == "" {
+		cfg.Claude.SmartModel = "sonnet"
 	}
 	if cfg.Claude.Timeout == 0 {
 		cfg.Claude.Timeout = 30 * time.Second

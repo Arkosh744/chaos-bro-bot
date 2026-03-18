@@ -49,7 +49,7 @@ func main() {
 		go webSrv.Start()
 	}
 
-	b, err := bot.New(cfg.Telegram.Token, cfg.Telegram.OwnerID, cl, whisper, store, schedCfg, *cfg, webSrv, cfg.Group.InterjectChance)
+	b, err := bot.New(cfg.Telegram.Token, cfg.Telegram.OwnerID, cl, whisper, store, schedCfg, *cfg, webSrv, cfg.Group.InterjectChance, cfg.Claude.FastModel, cfg.Claude.SmartModel)
 	if err != nil {
 		log.Fatalf("bot init: %v", err)
 	}

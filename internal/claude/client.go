@@ -41,6 +41,11 @@ func (c *Client) IsOffline() bool {
 }
 
 func (c *Client) Ask(ctx context.Context, systemPrompt, userMessage string) (string, error) {
+	return c.AskWithModel(ctx, c.model, systemPrompt, userMessage)
+}
+
+// AskWithModel calls Claude CLI with a specific model override for one call.
+func (c *Client) AskWithModel(ctx context.Context, model, systemPrompt, userMessage string) (string, error) {
 	c.mu.Lock()
 	if c.offlineMode {
 		if time.Since(c.lastRetry) < offlineRetryPeriod {
@@ -53,12 +58,16 @@ func (c *Client) Ask(ctx context.Context, systemPrompt, userMessage string) (str
 	}
 	c.mu.Unlock()
 
+	if model == "" {
+		model = c.model
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
 	args := []string{
 		"-p",
-		"--model", c.model,
+		"--model", model,
 		"--output-format", "text",
 	}
 	if systemPrompt != "" {

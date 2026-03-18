@@ -22,6 +22,8 @@ type Bot struct {
 	web                   *web.Server
 	ownerID               int64
 	groupInterjectChance  int
+	fastModel             string
+	smartModel            string
 }
 
 var menu = &tele.ReplyMarkup{ResizeKeyboard: true}
@@ -54,7 +56,7 @@ var (
 	btnReflectTmrw   = inlineMenu.Data("🎯 Что завтра", "reflect_tomorrow")
 )
 
-func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperClient, store *storage.Storage, schedCfg scheduler.Config, cfg interface{}, webSrv *web.Server, groupInterjectChance int) (*Bot, error) {
+func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperClient, store *storage.Storage, schedCfg scheduler.Config, cfg interface{}, webSrv *web.Server, groupInterjectChance int, fastModel, smartModel string) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  token,
 		Poller: &tele.LongPoller{Timeout: 30 * time.Second},
@@ -82,6 +84,8 @@ func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperCl
 		ownerID:              ownerID,
 		web:                  webSrv,
 		groupInterjectChance: groupInterjectChance,
+		fastModel:            fastModel,
+		smartModel:           smartModel,
 	}
 
 	b.scheduler = scheduler.New(schedCfg, tg, cl, store)

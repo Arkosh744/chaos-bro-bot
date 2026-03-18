@@ -160,6 +160,15 @@ func (s *Storage) migrate() error {
 			active INTEGER NOT NULL DEFAULT 1,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
+		CREATE TABLE IF NOT EXISTS custom_achievements (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			emoji TEXT NOT NULL DEFAULT '🏆',
+			description TEXT NOT NULL,
+			event TEXT NOT NULL,
+			threshold INTEGER NOT NULL DEFAULT 1,
+			active INTEGER NOT NULL DEFAULT 1
+		);
 	`)
 	return err
 }
@@ -1149,4 +1158,191 @@ func (s *Storage) DeletePromptOverride(name string) error {
 		return fmt.Errorf("delete prompt override %s: %w", name, err)
 	}
 	return nil
+}
+
+// --- Analytics ---
+
+// DayCount represents message count for a specific day.
+type DayCount struct {
+	Date  string
+	Count int
+}
+
+// CommandCount represents usage count for a specific command or button text.
+type CommandCount struct {
+	Command string
+	Count   int
+}
+
+// GetMessagesByDay returns daily message counts for a user over the last N days.
+func (s *Storage) GetMessagesByDay(userID int64, days int) ([]DayCount, error) {
+	rows, err := s.db.Query(`
+		SELECT date(created_at) AS day, COUNT(*) AS cnt
+		FROM messages
+		WHERE user_id = ? AND role = 'user'
+			AND created_at >= datetime('now', ? || ' days')
+		GROUP BY day
+		ORDER BY day ASC`,
+		userID, fmt.Sprintf("-%d", days),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get messages by day: %w", err)
+	}
+	defer rows.Close()
+
+	var result []DayCount
+	for rows.Next() {
+		var d DayCount
+		if err := rows.Scan(&d.Date, &d.Count); err != nil {
+			return nil, fmt.Errorf("scan day count: %w", err)
+		}
+		result = append(result, d)
+	}
+	return result, nil
+}
+
+// GetTopCommands returns the most used commands (messages starting with / or matching button texts).
+func (s *Storage) GetTopCommands(userID int64, limit int) ([]CommandCount, error) {
+	rows, err := s.db.Query(`
+		SELECT
+			CASE
+				WHEN text LIKE '/%' THEN LOWER(
+					CASE WHEN INSTR(text, ' ') > 0
+						THEN SUBSTR(text, 1, INSTR(text, ' ') - 1)
+						ELSE text
+					END
+				)
+				ELSE text
+			END AS cmd,
+			COUNT(*) AS cnt
+		FROM messages
+		WHERE user_id = ? AND role = 'user'
+			AND (text LIKE '/%' OR text IN (
+				'👁 Очнись', '🎲 Ебани куба', '🔮 Судьба',
+				'🎱 Кинь кости', '🫁 Дыши', '🔥 Зажарь',
+				'🧙 Мудрость', '⭐ Гороскоп', '📊 Настроение',
+				'🪞 Зеркало', '[button]'
+			))
+		GROUP BY cmd
+		ORDER BY cnt DESC
+		LIMIT ?`,
+		userID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get top commands: %w", err)
+	}
+	defer rows.Close()
+
+	var result []CommandCount
+	for rows.Next() {
+		var c CommandCount
+		if err := rows.Scan(&c.Command, &c.Count); err != nil {
+			return nil, fmt.Errorf("scan command count: %w", err)
+		}
+		result = append(result, c)
+	}
+	return result, nil
+}
+
+// GetAverageWordCount returns the average number of words per user message.
+func (s *Storage) GetAverageWordCount(userID int64) (float64, error) {
+	var avg sql.NullFloat64
+	err := s.db.QueryRow(`
+		SELECT AVG(
+			LENGTH(TRIM(text)) - LENGTH(REPLACE(TRIM(text), ' ', '')) + 1
+		)
+		FROM messages
+		WHERE user_id = ? AND role = 'user'
+			AND text NOT LIKE '[%'
+			AND text NOT LIKE '/%'
+			AND LENGTH(TRIM(text)) > 0`,
+		userID,
+	).Scan(&avg)
+	if err != nil {
+		return 0, fmt.Errorf("get average word count: %w", err)
+	}
+	if !avg.Valid {
+		return 0, nil
+	}
+	return avg.Float64, nil
+}
+
+// --- Custom Achievements ---
+
+// CustomAchievement represents a user-defined achievement stored in DB.
+type CustomAchievement struct {
+	ID          int64
+	Name        string
+	Emoji       string
+	Description string
+	Event       string
+	Threshold   int
+	Active      bool
+}
+
+// AddCustomAchievement inserts a new custom achievement definition.
+func (s *Storage) AddCustomAchievement(name, emoji, desc, event string, threshold int) error {
+	_, err := s.db.Exec(
+		"INSERT INTO custom_achievements (name, emoji, description, event, threshold) VALUES (?, ?, ?, ?, ?)",
+		name, emoji, desc, event, threshold,
+	)
+	if err != nil {
+		return fmt.Errorf("add custom achievement: %w", err)
+	}
+	return nil
+}
+
+// ListCustomAchievements returns all custom achievements (active and inactive).
+func (s *Storage) ListCustomAchievements() ([]CustomAchievement, error) {
+	rows, err := s.db.Query(
+		"SELECT id, name, emoji, description, event, threshold, active FROM custom_achievements ORDER BY id",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list custom achievements: %w", err)
+	}
+	defer rows.Close()
+
+	var result []CustomAchievement
+	for rows.Next() {
+		var a CustomAchievement
+		var active int
+		if err := rows.Scan(&a.ID, &a.Name, &a.Emoji, &a.Description, &a.Event, &a.Threshold, &active); err != nil {
+			return nil, fmt.Errorf("scan custom achievement: %w", err)
+		}
+		a.Active = active == 1
+		result = append(result, a)
+	}
+	return result, nil
+}
+
+// DeleteCustomAchievement soft-deletes a custom achievement by ID.
+func (s *Storage) DeleteCustomAchievement(id int64) error {
+	_, err := s.db.Exec("UPDATE custom_achievements SET active = 0 WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("delete custom achievement: %w", err)
+	}
+	return nil
+}
+
+// GetActiveCustomAchievements returns all active custom achievements.
+func (s *Storage) GetActiveCustomAchievements() ([]CustomAchievement, error) {
+	rows, err := s.db.Query(
+		"SELECT id, name, emoji, description, event, threshold, active FROM custom_achievements WHERE active = 1 ORDER BY id",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get active custom achievements: %w", err)
+	}
+	defer rows.Close()
+
+	var result []CustomAchievement
+	for rows.Next() {
+		var a CustomAchievement
+		var active int
+		if err := rows.Scan(&a.ID, &a.Name, &a.Emoji, &a.Description, &a.Event, &a.Threshold, &active); err != nil {
+			return nil, fmt.Errorf("scan custom achievement: %w", err)
+		}
+		a.Active = active == 1
+		result = append(result, a)
+	}
+	return result, nil
 }
