@@ -3,11 +3,178 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
+
+// migrations is a versioned list of database migration functions.
+// Each function is executed exactly once, in order.
+// IMPORTANT: never reorder or remove existing migrations — only append new ones.
+var migrations = []func(tx *sql.Tx) error{
+	// v1: initial schema — all tables from the monolithic CREATE TABLE block
+	func(tx *sql.Tx) error {
+		_, err := tx.Exec(`
+			CREATE TABLE IF NOT EXISTS messages (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				user_id INTEGER NOT NULL,
+				role TEXT NOT NULL,
+				text TEXT NOT NULL,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id, id DESC);
+			CREATE TABLE IF NOT EXISTS context_summary (
+				user_id INTEGER PRIMARY KEY,
+				summary TEXT NOT NULL DEFAULT '',
+				last_message_id INTEGER NOT NULL DEFAULT 0,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE TABLE IF NOT EXISTS capsules (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				user_id INTEGER NOT NULL,
+				text TEXT NOT NULL,
+				deliver_at TIMESTAMP NOT NULL,
+				delivered INTEGER NOT NULL DEFAULT 0,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE INDEX IF NOT EXISTS idx_capsules_deliver ON capsules(delivered, deliver_at);
+			CREATE TABLE IF NOT EXISTS counters (
+				user_id INTEGER NOT NULL,
+				name TEXT NOT NULL,
+				value INTEGER NOT NULL DEFAULT 0,
+				PRIMARY KEY (user_id, name)
+			);
+			CREATE TABLE IF NOT EXISTS achievements (
+				user_id INTEGER NOT NULL,
+				name TEXT NOT NULL,
+				unlocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (user_id, name)
+			);
+			CREATE TABLE IF NOT EXISTS user_facts (
+				user_id INTEGER NOT NULL,
+				category TEXT NOT NULL,
+				fact TEXT NOT NULL,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (user_id, category)
+			);
+			CREATE TABLE IF NOT EXISTS daily_lies (
+				user_id INTEGER NOT NULL,
+				lie_text TEXT NOT NULL,
+				truth_text TEXT NOT NULL,
+				revealed INTEGER NOT NULL DEFAULT 0,
+				created_date TEXT NOT NULL,
+				PRIMARY KEY (user_id, created_date)
+			);
+			CREATE TABLE IF NOT EXISTS user_profiles (
+				user_id INTEGER PRIMARY KEY,
+				username TEXT NOT NULL DEFAULT '',
+				first_name TEXT NOT NULL DEFAULT '',
+				last_name TEXT NOT NULL DEFAULT '',
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE TABLE IF NOT EXISTS reminders (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				user_id INTEGER NOT NULL,
+				text TEXT NOT NULL,
+				remind_at TIMESTAMP NOT NULL,
+				delivered INTEGER NOT NULL DEFAULT 0,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE INDEX IF NOT EXISTS idx_reminders_deliver ON reminders(delivered, remind_at);
+			CREATE TABLE IF NOT EXISTS habits (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				user_id INTEGER NOT NULL,
+				name TEXT NOT NULL,
+				active INTEGER NOT NULL DEFAULT 1,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE TABLE IF NOT EXISTS habit_logs (
+				habit_id INTEGER NOT NULL,
+				done_date TEXT NOT NULL,
+				PRIMARY KEY (habit_id, done_date)
+			);
+			CREATE TABLE IF NOT EXISTS reflections (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				user_id INTEGER NOT NULL,
+				category TEXT NOT NULL,
+				text TEXT NOT NULL,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE INDEX IF NOT EXISTS idx_reflections_user ON reflections(user_id, created_at DESC);
+			CREATE TABLE IF NOT EXISTS prompt_overrides (
+				name TEXT PRIMARY KEY,
+				value TEXT NOT NULL,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE TABLE IF NOT EXISTS weekly_challenges (
+				user_id INTEGER NOT NULL,
+				challenge TEXT NOT NULL,
+				week_start TEXT NOT NULL,
+				completed_days INTEGER NOT NULL DEFAULT 0,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (user_id, week_start)
+			);
+			CREATE TABLE IF NOT EXISTS custom_easter_eggs (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				trigger_text TEXT NOT NULL UNIQUE,
+				response TEXT NOT NULL,
+				active INTEGER NOT NULL DEFAULT 1,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE TABLE IF NOT EXISTS custom_achievements (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				name TEXT NOT NULL,
+				emoji TEXT NOT NULL DEFAULT '🏆',
+				description TEXT NOT NULL,
+				event TEXT NOT NULL,
+				threshold INTEGER NOT NULL DEFAULT 1,
+				active INTEGER NOT NULL DEFAULT 1
+			);
+			CREATE TABLE IF NOT EXISTS duels (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				chat_id INTEGER NOT NULL,
+				challenger_id INTEGER NOT NULL,
+				opponent_id INTEGER NOT NULL,
+				question TEXT NOT NULL,
+				challenger_answer TEXT,
+				opponent_answer TEXT,
+				winner_id INTEGER,
+				status TEXT NOT NULL DEFAULT 'pending',
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE TABLE IF NOT EXISTS group_quests (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				chat_id INTEGER NOT NULL,
+				quest TEXT NOT NULL,
+				answer_hint TEXT,
+				winner_id INTEGER,
+				status TEXT NOT NULL DEFAULT 'active',
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE TABLE IF NOT EXISTS linked_users (
+				user_a INTEGER NOT NULL,
+				user_b INTEGER NOT NULL,
+				status TEXT NOT NULL DEFAULT 'pending',
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (user_a, user_b)
+			);
+		`)
+		return err
+	},
+	// v2: runtime_config table for hot-reloadable settings
+	func(tx *sql.Tx) error {
+		_, err := tx.Exec(`
+			CREATE TABLE IF NOT EXISTS runtime_config (
+				key TEXT PRIMARY KEY,
+				value TEXT NOT NULL,
+				updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+		`)
+		return err
+	},
+}
 
 type Message struct {
 	ID        int64
@@ -53,124 +220,48 @@ func (s *Storage) Close() error {
 }
 
 func (s *Storage) migrate() error {
-	_, err := s.db.Exec(`
-		CREATE TABLE IF NOT EXISTS messages (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id INTEGER NOT NULL,
-			role TEXT NOT NULL,
-			text TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id, id DESC);
-		CREATE TABLE IF NOT EXISTS context_summary (
-			user_id INTEGER PRIMARY KEY,
-			summary TEXT NOT NULL DEFAULT '',
-			last_message_id INTEGER NOT NULL DEFAULT 0,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE IF NOT EXISTS capsules (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id INTEGER NOT NULL,
-			text TEXT NOT NULL,
-			deliver_at TIMESTAMP NOT NULL,
-			delivered INTEGER NOT NULL DEFAULT 0,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE INDEX IF NOT EXISTS idx_capsules_deliver ON capsules(delivered, deliver_at);
-		CREATE TABLE IF NOT EXISTS counters (
-			user_id INTEGER NOT NULL,
-			name TEXT NOT NULL,
-			value INTEGER NOT NULL DEFAULT 0,
-			PRIMARY KEY (user_id, name)
-		);
-		CREATE TABLE IF NOT EXISTS achievements (
-			user_id INTEGER NOT NULL,
-			name TEXT NOT NULL,
-			unlocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (user_id, name)
-		);
-		CREATE TABLE IF NOT EXISTS user_facts (
-			user_id INTEGER NOT NULL,
-			category TEXT NOT NULL,
-			fact TEXT NOT NULL,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (user_id, category)
-		);
-		CREATE TABLE IF NOT EXISTS daily_lies (
-			user_id INTEGER NOT NULL,
-			lie_text TEXT NOT NULL,
-			truth_text TEXT NOT NULL,
-			revealed INTEGER NOT NULL DEFAULT 0,
-			created_date TEXT NOT NULL,
-			PRIMARY KEY (user_id, created_date)
-		);
-		CREATE TABLE IF NOT EXISTS user_profiles (
-			user_id INTEGER PRIMARY KEY,
-			username TEXT NOT NULL DEFAULT '',
-			first_name TEXT NOT NULL DEFAULT '',
-			last_name TEXT NOT NULL DEFAULT '',
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE IF NOT EXISTS reminders (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id INTEGER NOT NULL,
-			text TEXT NOT NULL,
-			remind_at TIMESTAMP NOT NULL,
-			delivered INTEGER NOT NULL DEFAULT 0,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE INDEX IF NOT EXISTS idx_reminders_deliver ON reminders(delivered, remind_at);
-		CREATE TABLE IF NOT EXISTS habits (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id INTEGER NOT NULL,
-			name TEXT NOT NULL,
-			active INTEGER NOT NULL DEFAULT 1,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE IF NOT EXISTS habit_logs (
-			habit_id INTEGER NOT NULL,
-			done_date TEXT NOT NULL,
-			PRIMARY KEY (habit_id, done_date)
-		);
-		CREATE TABLE IF NOT EXISTS reflections (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			user_id INTEGER NOT NULL,
-			category TEXT NOT NULL,
-			text TEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE INDEX IF NOT EXISTS idx_reflections_user ON reflections(user_id, created_at DESC);
-		CREATE TABLE IF NOT EXISTS prompt_overrides (
-			name TEXT PRIMARY KEY,
-			value TEXT NOT NULL,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE IF NOT EXISTS weekly_challenges (
-			user_id INTEGER NOT NULL,
-			challenge TEXT NOT NULL,
-			week_start TEXT NOT NULL,
-			completed_days INTEGER NOT NULL DEFAULT 0,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (user_id, week_start)
-		);
-		CREATE TABLE IF NOT EXISTS custom_easter_eggs (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			trigger_text TEXT NOT NULL UNIQUE,
-			response TEXT NOT NULL,
-			active INTEGER NOT NULL DEFAULT 1,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE TABLE IF NOT EXISTS custom_achievements (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL,
-			emoji TEXT NOT NULL DEFAULT '🏆',
-			description TEXT NOT NULL,
-			event TEXT NOT NULL,
-			threshold INTEGER NOT NULL DEFAULT 1,
-			active INTEGER NOT NULL DEFAULT 1
-		);
-	`)
-	return err
+	// Ensure schema_version table exists (outside transaction — it's idempotent).
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)`); err != nil {
+		return fmt.Errorf("create schema_version table: %w", err)
+	}
+
+	// Read current version (0 if no rows yet).
+	var currentVersion int
+	err := s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&currentVersion)
+	if err != nil {
+		return fmt.Errorf("read schema version: %w", err)
+	}
+
+	if currentVersion >= len(migrations) {
+		return nil // already up to date
+	}
+
+	for i := currentVersion; i < len(migrations); i++ {
+		version := i + 1
+
+		tx, err := s.db.Begin()
+		if err != nil {
+			return fmt.Errorf("begin migration v%d: %w", version, err)
+		}
+
+		if err := migrations[i](tx); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("run migration v%d: %w", version, err)
+		}
+
+		if _, err := tx.Exec(`INSERT INTO schema_version (version) VALUES (?)`, version); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("update schema version to v%d: %w", version, err)
+		}
+
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("commit migration v%d: %w", version, err)
+		}
+
+		log.Printf("storage: applied migration v%d", version)
+	}
+
+	return nil
 }
 
 func (s *Storage) SaveMessage(userID int64, role, text string) (int64, error) {
@@ -1345,4 +1436,388 @@ func (s *Storage) GetActiveCustomAchievements() ([]CustomAchievement, error) {
 		result = append(result, a)
 	}
 	return result, nil
+}
+
+// --- Duels ---
+
+// Duel represents a duel between two users in a group chat.
+type Duel struct {
+	ID               int64
+	ChatID           int64
+	ChallengerID     int64
+	OpponentID       int64
+	Question         string
+	ChallengerAnswer string
+	OpponentAnswer   string
+	WinnerID         int64
+	Status           string
+	CreatedAt        time.Time
+}
+
+// CreateDuel creates a new duel in a group chat.
+func (s *Storage) CreateDuel(chatID, challengerID, opponentID int64, question string) (int64, error) {
+	res, err := s.db.Exec(
+		"INSERT INTO duels (chat_id, challenger_id, opponent_id, question) VALUES (?, ?, ?, ?)",
+		chatID, challengerID, opponentID, question,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("create duel: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+// GetActiveDuel returns the active (pending) duel for a group chat.
+func (s *Storage) GetActiveDuel(chatID int64) (*Duel, error) {
+	var d Duel
+	var challengerAnswer, opponentAnswer sql.NullString
+	err := s.db.QueryRow(`
+		SELECT id, chat_id, challenger_id, opponent_id, question,
+			challenger_answer, opponent_answer, COALESCE(winner_id, 0), status, created_at
+		FROM duels
+		WHERE chat_id = ? AND status = 'pending'
+		ORDER BY id DESC LIMIT 1`,
+		chatID,
+	).Scan(&d.ID, &d.ChatID, &d.ChallengerID, &d.OpponentID, &d.Question,
+		&challengerAnswer, &opponentAnswer, &d.WinnerID, &d.Status, &d.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get active duel: %w", err)
+	}
+	if challengerAnswer.Valid {
+		d.ChallengerAnswer = challengerAnswer.String
+	}
+	if opponentAnswer.Valid {
+		d.OpponentAnswer = opponentAnswer.String
+	}
+	return &d, nil
+}
+
+// SubmitDuelAnswer saves a participant's answer in an active duel.
+func (s *Storage) SubmitDuelAnswer(duelID, userID int64, answer string) error {
+	// Determine which column to update based on userID
+	var d Duel
+	err := s.db.QueryRow("SELECT challenger_id, opponent_id FROM duels WHERE id = ?", duelID).
+		Scan(&d.ChallengerID, &d.OpponentID)
+	if err != nil {
+		return fmt.Errorf("get duel participants: %w", err)
+	}
+
+	var column string
+	if userID == d.ChallengerID {
+		column = "challenger_answer"
+	} else if userID == d.OpponentID {
+		column = "opponent_answer"
+	} else {
+		return fmt.Errorf("user %d is not a participant of duel %d", userID, duelID)
+	}
+
+	_, err = s.db.Exec(
+		fmt.Sprintf("UPDATE duels SET %s = ? WHERE id = ?", column),
+		answer, duelID,
+	)
+	if err != nil {
+		return fmt.Errorf("submit duel answer: %w", err)
+	}
+	return nil
+}
+
+// CompleteDuel marks a duel as completed with a winner.
+func (s *Storage) CompleteDuel(duelID, winnerID int64) error {
+	_, err := s.db.Exec(
+		"UPDATE duels SET status = 'completed', winner_id = ? WHERE id = ?",
+		winnerID, duelID,
+	)
+	if err != nil {
+		return fmt.Errorf("complete duel: %w", err)
+	}
+	return nil
+}
+
+// --- Group Quests ---
+
+// GroupQuest represents a quest dropped in a group chat.
+type GroupQuest struct {
+	ID         int64
+	ChatID     int64
+	Quest      string
+	AnswerHint string
+	WinnerID   int64
+	Status     string
+	CreatedAt  time.Time
+}
+
+// CreateGroupQuest creates a new quest in a group chat.
+func (s *Storage) CreateGroupQuest(chatID int64, quest, hint string) (int64, error) {
+	// Complete any previous active quest first
+	_, _ = s.db.Exec("UPDATE group_quests SET status = 'expired' WHERE chat_id = ? AND status = 'active'", chatID)
+
+	res, err := s.db.Exec(
+		"INSERT INTO group_quests (chat_id, quest, answer_hint) VALUES (?, ?, ?)",
+		chatID, quest, hint,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("create group quest: %w", err)
+	}
+	return res.LastInsertId()
+}
+
+// GetActiveQuest returns the active quest for a group chat.
+func (s *Storage) GetActiveQuest(chatID int64) (*GroupQuest, error) {
+	var q GroupQuest
+	var hint sql.NullString
+	err := s.db.QueryRow(`
+		SELECT id, chat_id, quest, answer_hint, COALESCE(winner_id, 0), status, created_at
+		FROM group_quests
+		WHERE chat_id = ? AND status = 'active'
+		ORDER BY id DESC LIMIT 1`,
+		chatID,
+	).Scan(&q.ID, &q.ChatID, &q.Quest, &hint, &q.WinnerID, &q.Status, &q.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get active quest: %w", err)
+	}
+	if hint.Valid {
+		q.AnswerHint = hint.String
+	}
+	return &q, nil
+}
+
+// CompleteQuest marks a quest as completed with a winner.
+func (s *Storage) CompleteQuest(questID, winnerID int64) error {
+	_, err := s.db.Exec(
+		"UPDATE group_quests SET status = 'completed', winner_id = ? WHERE id = ?",
+		winnerID, questID,
+	)
+	if err != nil {
+		return fmt.Errorf("complete quest: %w", err)
+	}
+	return nil
+}
+
+// --- Linked Users ---
+
+// LinkedUser represents a link between two users.
+type LinkedUser struct {
+	UserA     int64
+	UserB     int64
+	Status    string
+	CreatedAt time.Time
+}
+
+// CreateLink creates a pending link request between two users.
+func (s *Storage) CreateLink(userA, userB int64) error {
+	_, err := s.db.Exec(
+		"INSERT OR IGNORE INTO linked_users (user_a, user_b, status) VALUES (?, ?, 'pending')",
+		userA, userB,
+	)
+	if err != nil {
+		return fmt.Errorf("create link: %w", err)
+	}
+	return nil
+}
+
+// AcceptLink confirms a link by updating status to 'active'.
+func (s *Storage) AcceptLink(userA, userB int64) error {
+	_, err := s.db.Exec(
+		"UPDATE linked_users SET status = 'active' WHERE user_a = ? AND user_b = ?",
+		userA, userB,
+	)
+	if err != nil {
+		return fmt.Errorf("accept link: %w", err)
+	}
+	return nil
+}
+
+// GetLinkedUser returns the linked partner's user ID. Checks both directions.
+func (s *Storage) GetLinkedUser(userID int64) (int64, error) {
+	var partnerID int64
+	err := s.db.QueryRow(`
+		SELECT CASE WHEN user_a = ? THEN user_b ELSE user_a END
+		FROM linked_users
+		WHERE (user_a = ? OR user_b = ?) AND status = 'active'
+		LIMIT 1`,
+		userID, userID, userID,
+	).Scan(&partnerID)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("get linked user: %w", err)
+	}
+	return partnerID, nil
+}
+
+// GetPendingLink checks if userA sent a pending link request to userB.
+func (s *Storage) GetPendingLink(userA, userB int64) (bool, error) {
+	var count int
+	err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM linked_users WHERE user_a = ? AND user_b = ? AND status = 'pending'",
+		userA, userB,
+	).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("get pending link: %w", err)
+	}
+	return count > 0, nil
+}
+
+// DeleteLink removes a link between two users (both directions).
+func (s *Storage) DeleteLink(userA, userB int64) error {
+	_, err := s.db.Exec(
+		"DELETE FROM linked_users WHERE (user_a = ? AND user_b = ?) OR (user_a = ? AND user_b = ?)",
+		userA, userB, userB, userA,
+	)
+	if err != nil {
+		return fmt.Errorf("delete link: %w", err)
+	}
+	return nil
+}
+
+// GetAllActiveLinks returns all active links (for morning check notifications).
+func (s *Storage) GetAllActiveLinks() ([]LinkedUser, error) {
+	rows, err := s.db.Query("SELECT user_a, user_b, status, created_at FROM linked_users WHERE status = 'active'")
+	if err != nil {
+		return nil, fmt.Errorf("get all active links: %w", err)
+	}
+	defer rows.Close()
+
+	var links []LinkedUser
+	for rows.Next() {
+		var l LinkedUser
+		if err := rows.Scan(&l.UserA, &l.UserB, &l.Status, &l.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan linked user: %w", err)
+		}
+		links = append(links, l)
+	}
+	return links, nil
+}
+
+// GetUserProfile returns the stored profile info for a user.
+func (s *Storage) GetUserProfile(userID int64) (username, firstName, lastName string, err error) {
+	err = s.db.QueryRow(
+		"SELECT username, first_name, last_name FROM user_profiles WHERE user_id = ?",
+		userID,
+	).Scan(&username, &firstName, &lastName)
+	if err == sql.ErrNoRows {
+		return "", "", "", nil
+	}
+	if err != nil {
+		return "", "", "", fmt.Errorf("get user profile: %w", err)
+	}
+	return username, firstName, lastName, nil
+}
+
+// FindUserByUsername looks up a user ID by their Telegram username.
+func (s *Storage) FindUserByUsername(username string, userID *int64) error {
+	err := s.db.QueryRow(
+		"SELECT user_id FROM user_profiles WHERE LOWER(username) = LOWER(?)",
+		username,
+	).Scan(userID)
+	if err == sql.ErrNoRows {
+		*userID = 0
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("find user by username %s: %w", username, err)
+	}
+	return nil
+}
+
+// GetLatestMoodScore returns the most recent mood score for a user (from today).
+func (s *Storage) GetLatestMoodScore(userID int64) (int, error) {
+	var score int
+	err := s.db.QueryRow(`
+		SELECT CAST(SUBSTR(text, 7, LENGTH(text) - 7) AS INTEGER)
+		FROM messages
+		WHERE user_id = ? AND role = 'user' AND text LIKE '[mood:%]'
+			AND date(created_at) = date('now')
+		ORDER BY id DESC LIMIT 1`,
+		userID,
+	).Scan(&score)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("get latest mood score: %w", err)
+	}
+	return score, nil
+}
+
+// --- Runtime Config ---
+
+// GetRuntimeConfig returns the value for a runtime config key.
+// Returns empty string if not found.
+func (s *Storage) GetRuntimeConfig(key string) (string, error) {
+	var value string
+	err := s.db.QueryRow(
+		"SELECT value FROM runtime_config WHERE key = ?", key,
+	).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get runtime config %s: %w", key, err)
+	}
+	return value, nil
+}
+
+// SetRuntimeConfig upserts a runtime config key/value pair.
+func (s *Storage) SetRuntimeConfig(key, value string) error {
+	_, err := s.db.Exec(`
+		INSERT INTO runtime_config (key, value, updated_at)
+		VALUES (?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(key) DO UPDATE SET
+			value = excluded.value,
+			updated_at = excluded.updated_at`,
+		key, value,
+	)
+	if err != nil {
+		return fmt.Errorf("set runtime config %s: %w", key, err)
+	}
+	return nil
+}
+
+// GetAllRuntimeConfig returns all runtime config entries as a map.
+func (s *Storage) GetAllRuntimeConfig() (map[string]string, error) {
+	rows, err := s.db.Query("SELECT key, value FROM runtime_config ORDER BY key")
+	if err != nil {
+		return nil, fmt.Errorf("get all runtime config: %w", err)
+	}
+	defer rows.Close()
+
+	config := make(map[string]string)
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, fmt.Errorf("scan runtime config: %w", err)
+		}
+		config[key] = value
+	}
+	return config, nil
+}
+
+// DeleteRuntimeConfig removes a runtime config entry.
+func (s *Storage) DeleteRuntimeConfig(key string) error {
+	_, err := s.db.Exec("DELETE FROM runtime_config WHERE key = ?", key)
+	if err != nil {
+		return fmt.Errorf("delete runtime config %s: %w", key, err)
+	}
+	return nil
+}
+
+// GetRuntimeConfigInt returns the integer value for a runtime config key.
+// Returns the provided defaultVal if the key is not found or cannot be parsed.
+func (s *Storage) GetRuntimeConfigInt(key string, defaultVal int) int {
+	val, err := s.GetRuntimeConfig(key)
+	if err != nil || val == "" {
+		return defaultVal
+	}
+	var result int
+	if _, err := fmt.Sscanf(val, "%d", &result); err != nil {
+		return defaultVal
+	}
+	return result
 }

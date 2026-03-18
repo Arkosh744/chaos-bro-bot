@@ -387,6 +387,81 @@ func (s *Scheduler) sendMorningCheck() {
 			log.Printf("[%d] daily lie pre-generated", s.cfg.OwnerID)
 		}
 	}
+
+	// Linked users mood comparison
+	s.checkLinkedUsersMood()
+}
+
+// checkLinkedUsersMood compares mood scores of linked users and notifies them.
+func (s *Scheduler) checkLinkedUsersMood() {
+	if s.store == nil {
+		return
+	}
+
+	links, err := s.store.GetAllActiveLinks()
+	if err != nil {
+		log.Printf("linked users mood check error: %v", err)
+		return
+	}
+
+	for _, link := range links {
+		moodA, errA := s.store.GetLatestMoodScore(link.UserA)
+		moodB, errB := s.store.GetLatestMoodScore(link.UserB)
+
+		if errA != nil || errB != nil || moodA == 0 || moodB == 0 {
+			continue
+		}
+
+		_, nameA, _, _ := s.store.GetUserProfile(link.UserA)
+		_, nameB, _, _ := s.store.GetUserProfile(link.UserB)
+		if nameA == "" {
+			nameA = "Твой связанный"
+		}
+		if nameB == "" {
+			nameB = "Твой связанный"
+		}
+
+		// Both have mood data today — compare and notify
+		var msg string
+		diff := moodA - moodB
+		if diff < 0 {
+			diff = -diff
+		}
+
+		switch {
+		case moodA == moodB:
+			msg = fmt.Sprintf("Ты и %s оба сегодня на %d/10. Совпадение? Может поговорите?", nameB, moodA)
+		case diff <= 2:
+			msg = fmt.Sprintf("Ты %d/10, а %s — %d/10. Почти на одной волне.", moodA, nameB, moodB)
+		case moodA < moodB:
+			msg = fmt.Sprintf("У тебя %d/10, а у %s — %d/10. Может стоит списаться?", moodA, nameB, moodB)
+		default:
+			msg = fmt.Sprintf("У тебя %d/10, а у %s — %d/10. Может стоит списаться?", moodA, nameB, moodB)
+		}
+
+		recipientA := &chatRecipient{id: link.UserA}
+		if _, err := s.tg.Send(recipientA, msg); err != nil {
+			log.Printf("[%d] linked mood notify error: %v", link.UserA, err)
+		}
+
+		// Send reverse notification to user B
+		var msgB string
+		switch {
+		case moodA == moodB:
+			msgB = fmt.Sprintf("Ты и %s оба сегодня на %d/10. Совпадение? Может поговорите?", nameA, moodB)
+		case diff <= 2:
+			msgB = fmt.Sprintf("Ты %d/10, а %s — %d/10. Почти на одной волне.", moodB, nameA, moodA)
+		default:
+			msgB = fmt.Sprintf("У тебя %d/10, а у %s — %d/10. Может стоит списаться?", moodB, nameA, moodA)
+		}
+
+		recipientB := &chatRecipient{id: link.UserB}
+		if _, err := s.tg.Send(recipientB, msgB); err != nil {
+			log.Printf("[%d] linked mood notify error: %v", link.UserB, err)
+		}
+
+		log.Printf("linked mood comparison: %d(%d) <-> %d(%d)", link.UserA, moodA, link.UserB, moodB)
+	}
 }
 
 func (s *Scheduler) eveningCheckLoop() {

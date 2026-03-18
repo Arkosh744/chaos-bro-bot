@@ -10,8 +10,11 @@ import (
 
 type Config struct {
 	Telegram struct {
-		Token   string `yaml:"token"`
-		OwnerID int64  `yaml:"owner_id"`
+		Token       string `yaml:"token"`
+		OwnerID     int64  `yaml:"owner_id"`
+		UseWebhook  bool   `yaml:"use_webhook"`
+		WebhookURL  string `yaml:"webhook_url"`
+		WebhookPort int    `yaml:"webhook_port"`
 	} `yaml:"telegram"`
 	Claude struct {
 		Model      string        `yaml:"model"`
@@ -96,6 +99,9 @@ func Load() (*Config, error) {
 	}
 	if cfg.Group.InterjectChance == 0 {
 		cfg.Group.InterjectChance = 10
+	}
+	if cfg.Telegram.WebhookPort == 0 {
+		cfg.Telegram.WebhookPort = 8443
 	}
 
 	return &cfg, nil

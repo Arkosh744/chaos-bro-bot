@@ -56,10 +56,21 @@ var (
 	btnReflectTmrw   = inlineMenu.Data("🎯 Что завтра", "reflect_tomorrow")
 )
 
-func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperClient, store *storage.Storage, schedCfg scheduler.Config, cfg interface{}, webSrv *web.Server, groupInterjectChance int, fastModel, smartModel string) (*Bot, error) {
+func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperClient, store *storage.Storage, schedCfg scheduler.Config, cfg interface{}, webSrv *web.Server, groupInterjectChance int, fastModel, smartModel string, useWebhook bool, webhookURL string, webhookPort int) (*Bot, error) {
+	var poller tele.Poller
+	if useWebhook {
+		poller = &tele.Webhook{
+			Listen:   fmt.Sprintf(":%d", webhookPort),
+			Endpoint: &tele.WebhookEndpoint{PublicURL: webhookURL},
+		}
+		log.Printf("Telegram webhook mode: %s (port %d)", webhookURL, webhookPort)
+	} else {
+		poller = &tele.LongPoller{Timeout: 30 * time.Second}
+	}
+
 	pref := tele.Settings{
 		Token:  token,
-		Poller: &tele.LongPoller{Timeout: 30 * time.Second},
+		Poller: poller,
 	}
 
 	tg, err := tele.NewBot(pref)
@@ -181,6 +192,12 @@ func (b *Bot) registerHandlers() {
 			return b.handleTriviaAnswer(c, l)
 		})
 	}
+
+	// Social features
+	b.tg.Handle("/duel", b.handleDuel)
+	b.tg.Handle("/quest", b.handleQuest)
+	b.tg.Handle("/link", b.handleLink)
+	b.tg.Handle("/unlink", b.handleUnlink)
 
 	b.tg.Handle(tele.OnPhoto, b.handlePhoto)
 	b.tg.Handle(tele.OnText, b.handleText)

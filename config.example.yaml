@@ -1,6 +1,9 @@
 telegram:
   token: "YOUR_BOT_TOKEN"
   owner_id: 0                     # your Telegram user ID for scheduler (morning/evening checks, digest)
+  use_webhook: false              # use webhook instead of long polling (default: false)
+  webhook_url: ""                 # public URL for webhook (e.g. https://example.com/bot)
+  webhook_port: 8443              # local port for webhook listener (default: 8443)
 
 claude:
   model: "sonnet"                 # claude model name (default: sonnet)

@@ -1446,6 +1446,13 @@
                 </div>
             </div>
             <div class="card" style="margin-top: 20px;">
+                <div class="card-title">Runtime Config</div>
+                <div class="setting-desc" style="margin-bottom: 16px;">Hot-reloadable settings. Changes apply immediately without restart.</div>
+                <div id="runtime-config-container" class="settings-group">
+                    <div class="loading">Zagr</div>
+                </div>
+            </div>
+            <div class="card" style="margin-top: 20px;">
                 <div class="card-title">Custom Easter Eggs</div>
                 <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
                     <input type="text" id="ee-trigger" placeholder="Триггер (текст)" class="setting-input" style="flex:1;min-width:120px;">
@@ -2035,8 +2042,91 @@
                 console.error('Settings load error:', err);
             }
 
-            // Also load easter eggs section
+            // Also load runtime config and easter eggs
+            loadRuntimeConfig();
             loadEasterEggs();
+        }
+
+        // Runtime Config
+        let runtimeConfigData = [];
+
+        async function loadRuntimeConfig() {
+            try {
+                const res = await fetch('/api/runtime-config');
+                runtimeConfigData = await res.json();
+                const container = document.getElementById('runtime-config-container');
+
+                if (!runtimeConfigData || runtimeConfigData.length === 0) {
+                    container.innerHTML = '<div style="color:var(--text-dim);font-size:0.85rem;">No configurable values</div>';
+                    return;
+                }
+
+                container.innerHTML = runtimeConfigData.map((c, idx) =>
+                    '<div class="setting-row">' +
+                        '<div>' +
+                            '<div class="setting-label">' + escapeHtml(c.key) +
+                                (c.is_overridden ? ' <span style="font-size:0.6rem;color:#4fc3f7;font-family:var(--mono);background:rgba(79,195,247,0.15);padding:2px 6px;border-radius:4px;margin-left:6px;">override</span>' : '') +
+                            '</div>' +
+                            '<div class="setting-desc">' + escapeHtml(c.description) + ' (default: ' + escapeHtml(c.default_value) + ')</div>' +
+                        '</div>' +
+                        '<div class="setting-controls">' +
+                            '<input type="number" class="setting-input" id="rc-val-' + idx + '" value="' + escapeHtml(c.value) + '" min="0" style="width:80px;">' +
+                            '<button class="btn btn-success" style="padding:6px 12px;font-size:0.8rem;" onclick="saveRuntimeConfig(' + idx + ')">Save</button>' +
+                            (c.is_overridden ? '<button class="btn btn-danger" style="padding:6px 12px;font-size:0.8rem;" onclick="resetRuntimeConfig(' + idx + ')">Reset</button>' : '') +
+                        '</div>' +
+                    '</div>'
+                ).join('');
+            } catch (err) {
+                console.error('Runtime config load error:', err);
+            }
+        }
+
+        async function saveRuntimeConfig(idx) {
+            const c = runtimeConfigData[idx];
+            const val = document.getElementById('rc-val-' + idx).value.trim();
+            if (val === '') {
+                showToast('Value required');
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/runtime-config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                    body: JSON.stringify({ key: c.key, value: val })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    showToast(c.key + ' = ' + val);
+                    loadRuntimeConfig();
+                } else if (data.error) {
+                    showToast(data.error);
+                }
+            } catch (err) {
+                console.error('Save runtime config error:', err);
+                showToast('Save error');
+            }
+        }
+
+        async function resetRuntimeConfig(idx) {
+            const c = runtimeConfigData[idx];
+            try {
+                const res = await fetch('/api/runtime-config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                    body: JSON.stringify({ key: c.key, delete: true })
+                });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    showToast(c.key + ' reset to default');
+                    loadRuntimeConfig();
+                } else if (data.error) {
+                    showToast(data.error);
+                }
+            } catch (err) {
+                console.error('Reset runtime config error:', err);
+                showToast('Reset error');
+            }
         }
 
         // Easter Eggs

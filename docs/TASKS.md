@@ -29,3 +29,7 @@
 - [x] [100%] Multi-Model Selection: AskWithModel() + FastModel/SmartModel config + smart model for roast/story/future/serious (2026-03-18)
 - [x] [100%] Analytics Dashboard: /api/analytics endpoint + Analytics tab with Chart.js (messages/day bar + commands pie + stat cards) (2026-03-18)
 - [x] [100%] Achievement Editor: custom_achievements table + CRUD API + CheckAchievements integration + Admin UI (2026-03-18)
+- [x] [100%] Social Features: Duels (/duel) + Group Quests (/quest) + Linked Users (/link, /unlink) + mood comparison in scheduler (2026-03-18)
+- [x] [100%] Versioned DB Migrations: schema_version table + transactional migration runner replacing monolithic CREATE TABLE (2026-03-18)
+- [x] [100%] Webhook Mode: optional config-driven Telegram webhook poller (use_webhook, webhook_url, webhook_port) (2026-03-18)
+- [x] [100%] Config Hot-Reload: runtime_config SQLite table + REST API + admin panel UI + bot integration (interject_chance, rate_limit, bargain_chance) (2026-03-18)

@@ -859,3 +859,105 @@ func (s *Server) handleCustomAchievements(w http.ResponseWriter, r *http.Request
 		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
 }
+
+// RuntimeConfigDef describes a single overridable runtime config key with its metadata.
+type RuntimeConfigDef struct {
+	Key          string `json:"key"`
+	Description  string `json:"description"`
+	DefaultValue string `json:"default_value"`
+}
+
+// runtimeConfigDefs lists all known overridable runtime config keys.
+var runtimeConfigDefs = []RuntimeConfigDef{
+	{Key: "interject_chance", Description: "Group interject chance (0-100%)", DefaultValue: "10"},
+	{Key: "rate_limit_per_hour", Description: "Max Claude calls per hour per user", DefaultValue: "30"},
+	{Key: "bargain_chance", Description: "Bargain message chance (0-100%)", DefaultValue: "20"},
+}
+
+// handleRuntimeConfig handles GET (all runtime config) and POST (set key/value).
+func (s *Server) handleRuntimeConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		stored, err := s.store.GetAllRuntimeConfig()
+		if err != nil {
+			log.Printf("web: get runtime config: %v", err)
+			s.writeError(w, http.StatusInternalServerError, "failed to get runtime config")
+			return
+		}
+
+		type configDTO struct {
+			Key          string `json:"key"`
+			Value        string `json:"value"`
+			DefaultValue string `json:"default_value"`
+			Description  string `json:"description"`
+			IsOverridden bool   `json:"is_overridden"`
+		}
+
+		result := make([]configDTO, 0, len(runtimeConfigDefs))
+		for _, def := range runtimeConfigDefs {
+			val, overridden := stored[def.Key]
+			if !overridden {
+				val = def.DefaultValue
+			}
+			result = append(result, configDTO{
+				Key:          def.Key,
+				Value:        val,
+				DefaultValue: def.DefaultValue,
+				Description:  def.Description,
+				IsOverridden: overridden,
+			})
+		}
+		s.writeJSON(w, result)
+
+	case http.MethodPost:
+		var req struct {
+			Key    string `json:"key"`
+			Value  string `json:"value"`
+			Delete bool   `json:"delete"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			s.writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		if req.Key == "" {
+			s.writeError(w, http.StatusBadRequest, "key is required")
+			return
+		}
+
+		// Validate key is known
+		known := false
+		for _, def := range runtimeConfigDefs {
+			if def.Key == req.Key {
+				known = true
+				break
+			}
+		}
+		if !known {
+			s.writeError(w, http.StatusBadRequest, "unknown config key: "+req.Key)
+			return
+		}
+
+		if req.Delete {
+			if err := s.store.DeleteRuntimeConfig(req.Key); err != nil {
+				log.Printf("web: delete runtime config: %v", err)
+				s.writeError(w, http.StatusInternalServerError, "failed to delete runtime config")
+				return
+			}
+		} else {
+			if req.Value == "" {
+				s.writeError(w, http.StatusBadRequest, "value is required")
+				return
+			}
+			if err := s.store.SetRuntimeConfig(req.Key, req.Value); err != nil {
+				log.Printf("web: set runtime config: %v", err)
+				s.writeError(w, http.StatusInternalServerError, "failed to set runtime config")
+				return
+			}
+		}
+
+		s.writeJSON(w, map[string]string{"status": "ok"})
+
+	default:
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+	}
+}

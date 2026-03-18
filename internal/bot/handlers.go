@@ -188,6 +188,12 @@ func (b *Bot) handleHelp(c tele.Context) error {
 /top — таблица лидеров
 /help — эта справка
 
+*Социальные (группы):*
+/duel — вызвать на дуэль (ответом на сообщение)
+/quest — квест для группы
+/link @user — связать аккаунты
+/unlink — разорвать связь
+
 *Секретные (streak):*
 /roastme — бот roast'ит себя (14д)
 /serious — серьёзный ответ (30д)
@@ -373,9 +379,20 @@ func (b *Bot) handleText(c tele.Context) error {
 			log.Printf("[%d] save group message error: %v", chatID, err)
 		}
 
+		// Check active duel answers before anything else
+		if b.handleDuelAnswer(c) {
+			return nil
+		}
+
+		// Check active quest answers
+		if b.handleQuestAnswer(c) {
+			return nil
+		}
+
 		if !b.isBotMentioned(c) {
-			// Random interject chance
-			if b.groupInterjectChance > 0 && rand.Intn(100) < b.groupInterjectChance {
+			// Random interject chance — runtime config with fallback to startup value
+			interjectChance := b.store.GetRuntimeConfigInt("interject_chance", b.groupInterjectChance)
+			if interjectChance > 0 && rand.Intn(100) < interjectChance {
 				go b.groupInterject(c, text)
 			}
 			return nil
@@ -569,8 +586,9 @@ func (b *Bot) handleText(c tele.Context) error {
 		return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
 	}
 
-	// Bargain: 20% chance bot demands something before answering
-	if rand.Intn(5) == 0 {
+	// Bargain: configurable chance (default 20%) bot demands something before answering
+	bargainChance := b.store.GetRuntimeConfigInt("bargain_chance", 20)
+	if bargainChance > 0 && rand.Intn(100) < bargainChance {
 		bargain := features.Bargains[rand.Intn(len(features.Bargains))]
 		if err := c.Send(bargain, menu); err != nil {
 			log.Printf("[%d] bargain send error: %v", userID, err)
