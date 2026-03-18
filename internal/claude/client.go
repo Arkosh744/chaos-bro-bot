@@ -40,10 +40,30 @@ func (c *Client) IsOffline() bool {
 	return c.offlineMode
 }
 
-// SanitizeInput removes common prompt injection patterns.
+// SanitizeInput cleans user input before passing to Claude.
+// Limits length and strips known prompt injection patterns.
 func SanitizeInput(text string) string {
+	// Hard limit on input length
 	if len(text) > 4000 {
 		text = text[:4000]
+	}
+
+	// Strip null bytes and control characters (except newlines/tabs)
+	var clean strings.Builder
+	clean.Grow(len(text))
+	for _, r := range text {
+		if r == '\n' || r == '\t' || r >= 32 {
+			clean.WriteRune(r)
+		}
+	}
+	return clean.String()
+}
+
+// SanitizeOutput cleans Claude's response before sending to user.
+func SanitizeOutput(text string) string {
+	// Hard limit on output length (Telegram message limit ~4096)
+	if len(text) > 3500 {
+		text = text[:3500] + "..."
 	}
 	return text
 }
@@ -79,6 +99,7 @@ func (c *Client) AskWithModel(ctx context.Context, model, systemPrompt, userMess
 		"-p",
 		"--model", model,
 		"--output-format", "text",
+		"--max-turns", "1",
 	}
 	if systemPrompt != "" {
 		args = append(args, "--system-prompt", systemPrompt)
@@ -111,5 +132,5 @@ func (c *Client) AskWithModel(ctx context.Context, model, systemPrompt, userMess
 	c.offlineMode = false
 	c.mu.Unlock()
 
-	return strings.TrimSpace(stdout.String()), nil
+	return SanitizeOutput(strings.TrimSpace(stdout.String())), nil
 }
