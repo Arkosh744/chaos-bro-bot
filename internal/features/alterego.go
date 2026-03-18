@@ -1,9 +1,6 @@
 package features
 
-import (
-	"math/rand"
-	"time"
-)
+import "time"
 
 // AlterEgo represents an alternative bot personality that activates temporarily.
 type AlterEgo struct {
@@ -61,34 +58,15 @@ var AlterEgos = []AlterEgo{
 	},
 }
 
-// currentAlterEgo stores the active alter-ego state.
-var (
-	activeAlterEgo *AlterEgo
-	alterEgoExpiry time.Time
-)
-
-// GetAlterEgo returns the current alter-ego if active, nil otherwise.
-// Activates a new one randomly (~1/7 chance per day check).
+// GetAlterEgo returns today's alter ego (deterministic per day, ~1/7 chance).
+// All users see the same personality on the same day — no global mutable state.
 func GetAlterEgo() *AlterEgo {
-	now := time.Now()
-
-	// If we have an active alter-ego and it hasn't expired
-	if activeAlterEgo != nil && now.Before(alterEgoExpiry) {
-		return activeAlterEgo
+	day := time.Now().YearDay()
+	if day%7 != 0 {
+		return nil
 	}
-
-	// Clear expired
-	activeAlterEgo = nil
-
-	// ~1/7 chance to activate (roughly once a week if checked daily)
-	if rand.Intn(7) == 0 {
-		ego := AlterEgos[rand.Intn(len(AlterEgos))]
-		activeAlterEgo = &ego
-		alterEgoExpiry = now.Add(24 * time.Hour)
-		return activeAlterEgo
-	}
-
-	return nil
+	idx := day % len(AlterEgos)
+	return &AlterEgos[idx]
 }
 
 // AlterEgoPromptSuffix returns the alter-ego prompt modifier or empty string.

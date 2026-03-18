@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/features"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
@@ -72,8 +73,20 @@ func (b *Bot) handleDuel(c tele.Context) error {
 
 	log.Printf("[%d] duel #%d created: %s vs %s", chatID, duelID, challengerName, opponentName)
 
-	msg := fmt.Sprintf("Duel!\n\n%s vs %s\n\nВопрос: %s\n\nОба пишите ответ прямо в чат. У вас 30 секунд!",
+	msg := fmt.Sprintf("Duel!\n\n%s vs %s\n\nВопрос: %s\n\nОба пишите ответ прямо в чат. У вас 60 секунд!",
 		challengerName, opponentName, question)
+
+	// Auto-cancel duel after 60 seconds if both haven't answered
+	go func() {
+		time.Sleep(60 * time.Second)
+		duel, err := b.store.GetActiveDuel(chatID)
+		if err != nil || duel == nil || duel.Status != "pending" {
+			return
+		}
+		b.store.CompleteDuel(duel.ID, 0)
+		b.tg.Send(&tele.Chat{ID: chatID}, "⏰ Время вышло! Дуэль отменена — оба слишком медленные.")
+	}()
+
 	return replyFn(msg)
 }
 

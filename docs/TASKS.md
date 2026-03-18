@@ -37,3 +37,4 @@
 - [x] [100%] Prometheus Metrics: internal/metrics package + /metrics endpoint (no auth) + Claude latency/errors + active users + handleText instrumentation (2026-03-18)
 - [x] [100%] TTS Voice Output: internal/tts (edge-tts) + /voice command + 5% random voice reply in handleText (2026-03-18)
 - [x] [100%] Kaomoji Reactions: internal/features/reactions.go + 8% random reaction after handleText reply (2026-03-18)
+- [x] [100%] UX Fixes x12: P0 (offended non-blocking, randomizer prefix, alterego per-day, duel 60s timeout) + P1 (expanded pools, /help, mirror counter, FutureLetterPrompt, moodReplies) (2026-03-19)
