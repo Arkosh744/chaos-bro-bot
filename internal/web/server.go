@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/config"
@@ -25,6 +26,7 @@ type Server struct {
 	scheduler *scheduler.Scheduler
 	mux       *http.ServeMux
 	authToken string
+	csrfToken string
 	sendFunc  func(userID int64, text string) error
 }
 
@@ -33,7 +35,14 @@ func New(cfg config.Config, store *storage.Storage, sched *scheduler.Scheduler) 
 	token := cfg.Web.AuthToken
 	if token == "" {
 		token = generateRandomToken()
-		log.Printf("Web auth token (generated): %s", token)
+
+		tokenFile := "data/web_token.txt"
+		if err := os.MkdirAll("data", 0o700); err != nil {
+			log.Printf("web: create data dir: %v", err)
+		} else if err := os.WriteFile(tokenFile, []byte(token), 0o600); err != nil {
+			log.Printf("web: write token file: %v", err)
+		}
+		log.Printf("Web auth token generated, saved to %s", tokenFile)
 	}
 
 	s := &Server{
@@ -42,6 +51,7 @@ func New(cfg config.Config, store *storage.Storage, sched *scheduler.Scheduler) 
 		scheduler: sched,
 		mux:       http.NewServeMux(),
 		authToken: token,
+		csrfToken: generateRandomToken(),
 	}
 	s.registerRoutes()
 	return s
@@ -67,24 +77,27 @@ func (s *Server) SetSendFunc(fn func(userID int64, text string) error) {
 }
 
 func (s *Server) registerRoutes() {
-	// API routes — protected by auth middleware
+	// CSRF token endpoint — auth-protected, GET only
+	s.mux.HandleFunc("/api/csrf", s.authAPI(s.handleCSRF))
+
+	// API routes — protected by auth + CSRF middleware for state-changing methods
 	s.mux.HandleFunc("/api/users", s.authAPI(s.handleUsers))
 	s.mux.HandleFunc("/api/stats", s.authAPI(s.handleStats))
 	s.mux.HandleFunc("/api/mood", s.authAPI(s.handleMood))
-	s.mux.HandleFunc("/api/profile", s.authAPI(s.handleProfile))
+	s.mux.HandleFunc("/api/profile", s.authAPI(s.csrfCheck(s.handleProfile)))
 	s.mux.HandleFunc("/api/achievements", s.authAPI(s.handleAchievements))
 	s.mux.HandleFunc("/api/messages", s.authAPI(s.handleMessages))
 	s.mux.HandleFunc("/api/config", s.authAPI(s.handleConfig))
-	s.mux.HandleFunc("/api/config/scheduler", s.authAPI(s.handleConfigScheduler))
-	s.mux.HandleFunc("/api/config/hours", s.authAPI(s.handleConfigHours))
+	s.mux.HandleFunc("/api/config/scheduler", s.authAPI(s.csrfCheck(s.handleConfigScheduler)))
+	s.mux.HandleFunc("/api/config/hours", s.authAPI(s.csrfCheck(s.handleConfigHours)))
 	s.mux.HandleFunc("/api/summary", s.authAPI(s.handleSummary))
-	s.mux.HandleFunc("/api/send", s.authAPI(s.handleSend))
-	s.mux.HandleFunc("/api/scheduler/ping", s.authAPI(s.handleSchedulerPing))
+	s.mux.HandleFunc("/api/send", s.authAPI(s.csrfCheck(s.handleSend)))
+	s.mux.HandleFunc("/api/scheduler/ping", s.authAPI(s.csrfCheck(s.handleSchedulerPing)))
 	s.mux.HandleFunc("/api/backup", s.authAPI(s.handleBackup))
-	s.mux.HandleFunc("/api/prompts", s.authAPI(s.handlePrompts))
-	s.mux.HandleFunc("/api/easter-eggs", s.authAPI(s.handleEasterEggs))
+	s.mux.HandleFunc("/api/prompts", s.authAPI(s.csrfCheck(s.handlePrompts)))
+	s.mux.HandleFunc("/api/easter-eggs", s.authAPI(s.csrfCheck(s.handleEasterEggs)))
 	s.mux.HandleFunc("/api/analytics", s.authAPI(s.handleAnalytics))
-	s.mux.HandleFunc("/api/custom-achievements", s.authAPI(s.handleCustomAchievements))
+	s.mux.HandleFunc("/api/custom-achievements", s.authAPI(s.csrfCheck(s.handleCustomAchievements)))
 
 	// Static files — protected by auth middleware (cookie or query param)
 	staticFS, err := fs.Sub(staticFiles, "static")
@@ -92,6 +105,29 @@ func (s *Server) registerRoutes() {
 		log.Fatalf("web: embed static: %v", err)
 	}
 	s.mux.Handle("/", s.authStatic(http.FileServer(http.FS(staticFS))))
+}
+
+// csrfCheck validates the X-CSRF-Token header on POST and DELETE requests.
+func (s *Server) csrfCheck(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost || r.Method == http.MethodDelete {
+			token := r.Header.Get("X-CSRF-Token")
+			if token != s.csrfToken {
+				s.writeError(w, http.StatusForbidden, "invalid csrf token")
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
+// handleCSRF returns the CSRF token for use in state-changing requests.
+func (s *Server) handleCSRF(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	s.writeJSON(w, map[string]string{"token": s.csrfToken})
 }
 
 // authAPI wraps an API handler with Bearer token authentication.
@@ -153,8 +189,8 @@ func (s *Server) checkCookieToken(r *http.Request) bool {
 // Start launches the HTTP server in the current goroutine.
 // Typically called via `go server.Start()`.
 func (s *Server) Start() {
-	addr := fmt.Sprintf(":%d", s.cfg.Web.Port)
-	log.Printf("Web dashboard started on http://localhost%s", addr)
+	addr := fmt.Sprintf("127.0.0.1:%d", s.cfg.Web.Port)
+	log.Printf("Web dashboard started on http://%s", addr)
 
 	if err := http.ListenAndServe(addr, s.mux); err != nil {
 		log.Printf("web server error: %v", err)

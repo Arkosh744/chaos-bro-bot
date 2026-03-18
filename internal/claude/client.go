@@ -40,12 +40,22 @@ func (c *Client) IsOffline() bool {
 	return c.offlineMode
 }
 
+// SanitizeInput removes common prompt injection patterns.
+func SanitizeInput(text string) string {
+	if len(text) > 4000 {
+		text = text[:4000]
+	}
+	return text
+}
+
 func (c *Client) Ask(ctx context.Context, systemPrompt, userMessage string) (string, error) {
 	return c.AskWithModel(ctx, c.model, systemPrompt, userMessage)
 }
 
 // AskWithModel calls Claude CLI with a specific model override for one call.
 func (c *Client) AskWithModel(ctx context.Context, model, systemPrompt, userMessage string) (string, error) {
+	userMessage = SanitizeInput(userMessage)
+
 	c.mu.Lock()
 	if c.offlineMode {
 		if time.Since(c.lastRetry) < offlineRetryPeriod {

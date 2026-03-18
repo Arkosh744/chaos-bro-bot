@@ -329,10 +329,11 @@ func (b *Bot) handleDanetkiInput(c tele.Context, text string) error {
 		return c.Send("Что-то пошло не так. Начни новую игру: /game", menu)
 	}
 
-	prompt := fmt.Sprintf(features.DanetkiJudgePrompt, riddle, answer, text)
+	systemPrompt := fmt.Sprintf(features.DanetkiJudgePrompt, riddle, answer)
+	userMessage := "Ответ игрока: " + text
 
 	replyFn, stop := b.startThinking(c)
-	result, err := b.claude.Ask(context.Background(), prompt, text)
+	result, err := b.claude.Ask(context.Background(), systemPrompt, userMessage)
 	if err != nil {
 		stop()
 		log.Printf("[%d] danetki judge error: %v", userID, err)

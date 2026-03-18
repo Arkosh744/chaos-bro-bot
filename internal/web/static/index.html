@@ -1463,6 +1463,17 @@
         // Current selected user ID (0 means use server default / ownerID)
         let currentUserID = 0;
         let allUsers = [];
+        let csrfToken = '';
+
+        async function loadCsrfToken() {
+            try {
+                const res = await fetch('/api/csrf');
+                const data = await res.json();
+                csrfToken = data.token || '';
+            } catch (err) {
+                console.error('CSRF token load error:', err);
+            }
+        }
 
         // Build query string with user_id if set
         function userQuery(extra) {
@@ -1834,7 +1845,7 @@
             try {
                 await fetch('/api/profile' + userQuery(), {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ category: category, fact: value })
                 });
                 loadProfile();
@@ -1847,7 +1858,7 @@
             try {
                 await fetch('/api/profile' + userQuery(), {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ category: category, fact: '' })
                 });
                 loadProfile();
@@ -1866,7 +1877,7 @@
             try {
                 await fetch('/api/profile' + userQuery(), {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ category: category, fact: fact })
                 });
                 catEl.value = '';
@@ -2066,7 +2077,7 @@
             try {
                 const res = await fetch('/api/easter-eggs', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ trigger, response })
                 });
                 const data = await res.json();
@@ -2086,7 +2097,7 @@
 
         async function deleteEasterEgg(id) {
             try {
-                const res = await fetch('/api/easter-eggs?id=' + id, { method: 'DELETE' });
+                const res = await fetch('/api/easter-eggs?id=' + id, { method: 'DELETE', headers: { 'X-CSRF-Token': csrfToken } });
                 const data = await res.json();
                 if (data.status === 'ok') {
                     showToast('Easter egg удален');
@@ -2104,7 +2115,7 @@
             try {
                 const res = await fetch('/api/config/scheduler', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ enabled: enabled })
                 });
                 const data = await res.json();
@@ -2136,7 +2147,7 @@
             try {
                 const res = await fetch('/api/config/hours', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ min_hour: min, max_hour: max })
                 });
                 const data = await res.json();
@@ -2173,7 +2184,7 @@
             try {
                 const res = await fetch('/api/send', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ user_id: uid, text: text })
                 });
                 const data = await res.json();
@@ -2196,7 +2207,7 @@
             try {
                 const res = await fetch('/api/scheduler/ping', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ user_id: uid })
                 });
                 const data = await res.json();
@@ -2312,7 +2323,7 @@
             try {
                 const res = await fetch('/api/prompts', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ name: p.name, value: value })
                 });
                 const data = await res.json();
@@ -2333,7 +2344,7 @@
             try {
                 const res = await fetch('/api/prompts', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ name: p.name, delete: true })
                 });
                 const data = await res.json();
@@ -2472,7 +2483,7 @@
             try {
                 const res = await fetch('/api/custom-achievements', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                     body: JSON.stringify({ name, emoji, description: desc, event, threshold })
                 });
                 const data = await res.json();
@@ -2494,7 +2505,7 @@
 
         async function deleteCustomAchievement(id) {
             try {
-                const res = await fetch('/api/custom-achievements?id=' + id, { method: 'DELETE' });
+                const res = await fetch('/api/custom-achievements?id=' + id, { method: 'DELETE', headers: { 'X-CSRF-Token': csrfToken } });
                 const data = await res.json();
                 if (data.status === 'ok') {
                     showToast('Достижение удалено');
@@ -2531,7 +2542,7 @@
         }
 
         // Initial load
-        loadUsersList().then(() => loadDashboard());
+        loadCsrfToken().then(() => loadUsersList()).then(() => loadDashboard());
     </script>
 </body>
 </html>
