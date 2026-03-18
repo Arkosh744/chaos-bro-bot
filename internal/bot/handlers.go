@@ -1021,9 +1021,15 @@ func (b *Bot) buildUserContext(userID int64) string {
 		log.Printf("[%d] get summary error: %v", userID, err)
 	}
 
-	msgs, err := b.store.GetLastMessages(userID, 5)
+	msgs, err := b.store.GetLastMessages(userID, 50)
 	if err != nil {
 		log.Printf("[%d] get messages error: %v", userID, err)
+	}
+
+	// Use only last 5 messages for recent conversation context
+	recentMsgs := msgs
+	if len(recentMsgs) > 5 {
+		recentMsgs = recentMsgs[:5]
 	}
 
 	profile, err := b.store.GetFactsAsText(userID)
@@ -1031,7 +1037,7 @@ func (b *Bot) buildUserContext(userID int64) string {
 		log.Printf("[%d] get profile error: %v", userID, err)
 	}
 
-	ctx := features.BuildContext(summary, msgs)
+	ctx := features.BuildContext(summary, recentMsgs)
 	if profile != "" {
 		ctx = "Профиль пользователя:\n" + profile + "\n\n" + ctx
 	}
@@ -1043,6 +1049,12 @@ func (b *Bot) buildUserContext(userID int64) string {
 	}
 	level := features.GetLevel(msgCount)
 	ctx += features.LevelPromptSuffix(level)
+
+	// Analyze user's frequent phrases from wider message history
+	if len(msgs) > 10 {
+		phrases := features.AnalyzeFrequentPhrases(msgs)
+		ctx += features.PhrasesPromptSuffix(phrases)
+	}
 
 	return ctx
 }

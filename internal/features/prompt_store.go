@@ -48,5 +48,8 @@ func AllPrompts() []PromptDefinition {
 		{Name: "TriviaPrompt", DefaultValue: TriviaPrompt},
 		{Name: "PlaylistPrompt", DefaultValue: PlaylistPrompt},
 		{Name: "FutureLetterPrompt", DefaultValue: FutureLetterPrompt},
+		{Name: "WeeklyChallengePrompt", DefaultValue: WeeklyChallengePrompt},
+		{Name: "StoryStartPrompt", DefaultValue: StoryStartPrompt},
+		{Name: "StoryContinuePrompt", DefaultValue: StoryContinuePrompt},
 	}
 }
