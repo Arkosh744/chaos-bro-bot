@@ -2,7 +2,6 @@ package features
 
 import "fmt"
 
-// RelationshipLevel defines a bot-user relationship stage based on message count.
 type RelationshipLevel struct {
 	Level   int
 	Name    string
@@ -11,7 +10,6 @@ type RelationshipLevel struct {
 	Suffix  string // appended to system prompt to modify bot personality
 }
 
-// Levels defines all relationship stages ordered by ascending MinMsgs threshold.
 var Levels = []RelationshipLevel{
 	{
 		Level:   1,
@@ -68,7 +66,6 @@ var Levels = []RelationshipLevel{
 	},
 }
 
-// GetLevel returns the relationship level for a given message count.
 func GetLevel(messageCount int) *RelationshipLevel {
 	result := &Levels[0]
 	for i := range Levels {
@@ -79,7 +76,6 @@ func GetLevel(messageCount int) *RelationshipLevel {
 	return result
 }
 
-// GetNextLevel returns the next level after the current one, or nil if max level.
 func GetNextLevel(current *RelationshipLevel) *RelationshipLevel {
 	for i := range Levels {
 		if Levels[i].Level == current.Level && i+1 < len(Levels) {
@@ -89,7 +85,6 @@ func GetNextLevel(current *RelationshipLevel) *RelationshipLevel {
 	return nil
 }
 
-// LevelUpMessage returns a congratulatory message when user reaches a new level.
 func LevelUpMessage(level *RelationshipLevel) string {
 	switch level.Level {
 	case 2:
@@ -107,13 +102,11 @@ func LevelUpMessage(level *RelationshipLevel) string {
 	}
 }
 
-// LevelPromptSuffix returns the personality modifier for the system prompt.
 func LevelPromptSuffix(level *RelationshipLevel) string {
 	return fmt.Sprintf("\n\n## Уровень отношений: %s %s (уровень %d)\n%s",
 		level.Emoji, level.Name, level.Level, level.Suffix)
 }
 
-// FormatLevelStatus builds a status message for /level command.
 func FormatLevelStatus(messageCount int) string {
 	level := GetLevel(messageCount)
 	next := GetNextLevel(level)
@@ -149,7 +142,6 @@ func (b *levelStatusBuilder) String() string {
 	return header + stats + nextInfo + progressBar(progress)
 }
 
-// progressBar builds a text-based progress bar.
 func progressBar(ratio float64) string {
 	const barLen = 15
 	filled := int(ratio * barLen)

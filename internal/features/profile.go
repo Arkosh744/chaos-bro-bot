@@ -26,7 +26,6 @@ var categoryLabels = map[string]string{
 	"quirks":        "🤪 Странности",
 }
 
-// ExtractFacts analyzes conversation context and extracts user facts.
 func ExtractFacts(ctx context.Context, cl *claude.Client, store *storage.Storage, userID int64) error {
 	summary, _, err := store.GetSummary(userID)
 	if err != nil {
@@ -42,13 +41,11 @@ func ExtractFacts(ctx context.Context, cl *claude.Client, store *storage.Storage
 		return nil
 	}
 
-	// Build input for extraction
 	var input strings.Builder
 	if summary != "" {
 		input.WriteString("Summary:\n" + summary + "\n\n")
 	}
 
-	// Current profile for context
 	currentProfile, _ := store.GetFactsAsText(userID)
 	if currentProfile != "" {
 		input.WriteString("Текущий профиль:\n" + currentProfile + "\n\n")
@@ -94,7 +91,6 @@ func ExtractFacts(ctx context.Context, cl *claude.Client, store *storage.Storage
 	return nil
 }
 
-// FormatProfile builds a readable profile string.
 func FormatProfile(facts []storage.UserFact) string {
 	if len(facts) == 0 {
 		return "Пока ничего не знаю о тебе. Пиши больше — разберусь."

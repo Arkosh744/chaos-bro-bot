@@ -1,13 +1,9 @@
 package features
 
-// PromptStore provides access to prompt overrides without importing storage directly.
 type PromptStore interface {
 	GetPromptOverride(name string) (string, error)
 }
 
-// GetPrompt returns the prompt value, checking overrides first.
-// If the store has an override for the given name, it is returned.
-// Otherwise, the defaultValue is returned.
 func GetPrompt(store PromptStore, name, defaultValue string) string {
 	if store != nil {
 		if override, err := store.GetPromptOverride(name); err == nil && override != "" {
@@ -17,13 +13,11 @@ func GetPrompt(store PromptStore, name, defaultValue string) string {
 	return defaultValue
 }
 
-// PromptDefinition describes a prompt exposed in the admin panel.
 type PromptDefinition struct {
 	Name         string `json:"name"`
 	DefaultValue string `json:"default_value"`
 }
 
-// AllPrompts returns the list of all editable prompts with their default values.
 func AllPrompts() []PromptDefinition {
 	return []PromptDefinition{
 		{Name: "TricksterSystemPrompt", DefaultValue: TricksterSystemPrompt},

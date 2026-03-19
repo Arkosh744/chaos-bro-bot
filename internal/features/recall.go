@@ -24,12 +24,10 @@ Summary:
 - Если нет интересных фактов — ответь ПУСТО
 - На русском`
 
-// ShouldRecall returns true ~15% of the time, but only if we have context.
 func ShouldRecall() bool {
 	return rand.Intn(100) < 15
 }
 
-// GenerateRecall creates a memory reference based on user context.
 func GenerateRecall(ctx context.Context, cl *claude.Client, summary, profile string) (string, error) {
 	if summary == "" && profile == "" {
 		return "", nil

@@ -7,7 +7,6 @@ import (
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
 )
 
-// AnalyzeFrequentPhrases finds frequently used words (3+ occurrences) in user messages.
 func AnalyzeFrequentPhrases(msgs []storage.Message) []string {
 	wordCount := make(map[string]int)
 
@@ -18,11 +17,9 @@ func AnalyzeFrequentPhrases(msgs []storage.Message) []string {
 
 		words := strings.Fields(strings.ToLower(m.Text))
 		for _, w := range words {
-			// Skip short/common words
 			if len(w) < 4 {
 				continue
 			}
-			// Skip common Russian words
 			if isCommonWord(w) {
 				continue
 			}
@@ -43,12 +40,10 @@ func AnalyzeFrequentPhrases(msgs []storage.Message) []string {
 		}
 	}
 
-	// Sort by frequency descending to get the most used words first
 	sort.Slice(frequent, func(i, j int) bool {
 		return frequent[i].count > frequent[j].count
 	})
 
-	// Limit to top 5
 	if len(frequent) > 5 {
 		frequent = frequent[:5]
 	}
@@ -75,7 +70,6 @@ func isCommonWord(w string) bool {
 	return common[w]
 }
 
-// PhrasesPromptSuffix returns a prompt suffix telling the bot to use these phrases.
 func PhrasesPromptSuffix(phrases []string) string {
 	if len(phrases) == 0 {
 		return ""

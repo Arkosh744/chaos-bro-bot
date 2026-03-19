@@ -8,11 +8,9 @@ import (
 	"github.com/Arkosh744/chaos-bro-bot/internal/claude"
 )
 
-// SentimentPrompt asks Claude to rate the mood of a message on a 1-10 scale.
 const SentimentPrompt = `Оцени настроение этого сообщения по шкале 1-10 (1=очень плохо, 10=отлично).
 Ответь ТОЛЬКО числом. Ничего больше.`
 
-// AnalyzeSentiment returns a mood score (1-10) for the given text.
 func AnalyzeSentiment(ctx context.Context, cl *claude.Client, text string) (int, error) {
 	resp, err := cl.Ask(ctx, SentimentPrompt, text)
 	if err != nil {

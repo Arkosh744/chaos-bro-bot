@@ -2,7 +2,6 @@ package features
 
 import "fmt"
 
-// BotMoodSuffix returns a system prompt suffix based on how many messages the bot received today.
 func BotMoodSuffix(messageCountToday int) string {
 	switch {
 	case messageCountToday == 0:

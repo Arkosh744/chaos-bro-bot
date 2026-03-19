@@ -8,7 +8,6 @@ var sosKeywords = []string{
 	"депрессия", "панич", "трясёт", "страшно",
 }
 
-// IsSOS returns true if the text contains any distress keywords.
 func IsSOS(text string) bool {
 	lower := strings.ToLower(text)
 	for _, kw := range sosKeywords {
@@ -19,7 +18,6 @@ func IsSOS(text string) bool {
 	return false
 }
 
-// SOSMessage is the emergency response sent when distress is detected.
 const SOSMessage = "🆘 Стоп. Я вижу что тебе хреново.\n\n" +
 	"1. *Дыши*: вдох 4с → задержка 4с → выдох 6с (3 раза)\n" +
 	"2. *Заземлись*: назови 5 вещей которые видишь\n" +

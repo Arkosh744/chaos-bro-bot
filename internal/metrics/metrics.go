@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// Store holds in-memory counters for Prometheus-style /metrics endpoint.
 type Store struct {
 	messagesTotal     atomic.Int64
 	claudeCallsTotal  atomic.Int64
@@ -18,30 +17,21 @@ type Store struct {
 	activeUsers       sync.Map // userID -> last seen unix timestamp
 }
 
-// Global is the singleton metrics store.
 var Global = &Store{}
 
-// IncrementMessages increments the total messages counter.
-func IncrementMessages() { Global.messagesTotal.Add(1) }
-
-// IncrementClaudeCalls increments the total Claude API calls counter.
+func IncrementMessages()    { Global.messagesTotal.Add(1) }
 func IncrementClaudeCalls() { Global.claudeCallsTotal.Add(1) }
-
-// IncrementClaudeErrors increments the Claude API errors counter.
 func IncrementClaudeErrors() { Global.claudeErrorsTotal.Add(1) }
 
-// RecordClaudeLatency records a Claude call latency in milliseconds.
 func RecordClaudeLatency(ms int64) {
 	Global.claudeLatencySum.Add(ms)
 	Global.claudeCallCount.Add(1)
 }
 
-// TrackActiveUser records user activity timestamp.
 func TrackActiveUser(userID int64) {
 	Global.activeUsers.Store(userID, time.Now().Unix())
 }
 
-// WriteTo writes all metrics in Prometheus text format to the given writer.
 func WriteTo(w io.Writer) {
 	var activeCount int
 	now := time.Now().Unix()

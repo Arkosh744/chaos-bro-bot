@@ -8,7 +8,6 @@ import (
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
 )
 
-// SleepDay represents estimated sleep data for one day.
 type SleepDay struct {
 	Date       string
 	WakeUp     string  // first message time HH:MM
@@ -26,7 +25,6 @@ var weekdayNames = map[time.Weekday]string{
 	time.Sunday:    "Вс",
 }
 
-// AnalyzeSleep looks at first and last message times to estimate sleep patterns.
 func AnalyzeSleep(store *storage.Storage, userID int64, days int) []SleepDay {
 	now := time.Now()
 	var result []SleepDay
@@ -38,13 +36,11 @@ func AnalyzeSleep(store *storage.Storage, userID int64, days int) []SleepDay {
 		dateStr := day.Format("2006-01-02")
 		prevDateStr := prevDay.Format("2006-01-02")
 
-		// First message of the day = wake up proxy
 		firstMsg, _, err := store.GetFirstAndLastMessageTimes(userID, dateStr)
 		if err != nil || firstMsg.IsZero() {
 			continue
 		}
 
-		// Last message of the previous day = sleep proxy
 		_, lastMsg, err := store.GetFirstAndLastMessageTimes(userID, prevDateStr)
 		if err != nil || lastMsg.IsZero() {
 			continue
@@ -52,7 +48,6 @@ func AnalyzeSleep(store *storage.Storage, userID int64, days int) []SleepDay {
 
 		sleepHours := firstMsg.Sub(lastMsg).Hours()
 		if sleepHours <= 0 || sleepHours > 18 {
-			// Unrealistic data, skip
 			continue
 		}
 
@@ -80,7 +75,6 @@ func sleepEmoji(hours float64) string {
 	}
 }
 
-// FormatSleepReport builds a text report of sleep patterns.
 func FormatSleepReport(days []SleepDay) string {
 	if len(days) == 0 {
 		return "Недостаточно данных для анализа сна. Пиши чаще, тогда будет что анализировать."

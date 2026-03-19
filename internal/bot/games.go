@@ -12,7 +12,6 @@ import (
 	tele "gopkg.in/telebot.v4"
 )
 
-// Game type constants stored in counter "game_active".
 const (
 	gameNone    = 0
 	gameGuess   = 1
@@ -20,7 +19,6 @@ const (
 	gameTrivia  = 4
 )
 
-// handleGame shows the game selection menu or processes subcommands.
 func (b *Bot) handleGame(c tele.Context) error {
 	userID := c.Sender().ID
 	payload := c.Message().Payload
@@ -48,7 +46,6 @@ func (b *Bot) handleGame(c tele.Context) error {
 	return c.Send("🎮 Выбирай игру:", inline)
 }
 
-// handleGameStop ends the current active game.
 func (b *Bot) handleGameStop(c tele.Context) error {
 	userID := c.Sender().ID
 	gameType, _ := b.store.GetCounter(userID, "game_active")
@@ -57,7 +54,6 @@ func (b *Bot) handleGameStop(c tele.Context) error {
 		return c.Send("Нет активной игры.", menu)
 	}
 
-	// If danetki — reveal the answer
 	if gameType == gameDanetki {
 		answer, _ := b.store.GetFact(userID, "game_danetki_answer")
 		b.clearGameState(userID)
@@ -71,14 +67,12 @@ func (b *Bot) handleGameStop(c tele.Context) error {
 	return c.Send("Игра завершена.", menu)
 }
 
-// handleGameScore shows the trivia high score.
 func (b *Bot) handleGameScore(c tele.Context) error {
 	userID := c.Sender().ID
 	score, _ := b.store.GetCounter(userID, "trivia_highscore")
 	return c.Send(fmt.Sprintf("📚 Твой рекорд в тривии: %d", score), menu)
 }
 
-// clearGameState resets all game-related counters and facts.
 func (b *Bot) clearGameState(userID int64) {
 	b.store.SetCounter(userID, "game_active", gameNone)
 	b.store.SetCounter(userID, "guess_target", 0)
@@ -202,7 +196,6 @@ func (b *Bot) sendTriviaQuestion(c tele.Context, userID int64) error {
 		return c.Send("Не получилось придумать вопрос. Попробуй ещё раз.", menu)
 	}
 
-	// Store the correct answer
 	b.store.SaveFact(userID, "trivia_correct", correct)
 
 	score, _ := b.store.GetCounter(userID, "trivia_score")
@@ -246,16 +239,12 @@ func (b *Bot) handleTriviaAnswer(c tele.Context, letter string) error {
 			log.Printf("[%d] trivia callback error: %v", userID, err)
 		}
 
-		// Award game_win achievement on first correct trivia answer
 		b.checkAndSendAchievements(c, "game_win")
 
 		return b.sendTriviaQuestion(c, userID)
 	}
 
-	// Wrong answer — game over
 	score, _ := b.store.GetCounter(userID, "trivia_score")
-
-	// Update highscore
 	highscore, _ := b.store.GetCounter(userID, "trivia_highscore")
 	if score > highscore {
 		b.store.SetCounter(userID, "trivia_highscore", score)
@@ -343,7 +332,6 @@ func (b *Bot) handleDanetkiInput(c tele.Context, text string) error {
 		return c.Send("Не смог оценить вопрос. Попробуй другой.", menu)
 	}
 
-	// Normalize the response to one word
 	result = strings.TrimSpace(result)
 	normalized := strings.ToLower(result)
 	switch {

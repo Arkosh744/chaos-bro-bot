@@ -20,12 +20,10 @@ var reactions = []string{
 	"\u256d\u2229\u256e(\ufe36\u203f\ufe36)\u256d\u2229\u256e",
 }
 
-// ShouldReact returns true ~8% of the time.
 func ShouldReact() bool {
 	return rand.Intn(100) < 8
 }
 
-// RandomReaction returns a random kaomoji/text reaction.
 func RandomReaction() string {
 	return reactions[rand.Intn(len(reactions))]
 }

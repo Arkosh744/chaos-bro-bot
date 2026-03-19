@@ -8,15 +8,12 @@ import (
 	tele "gopkg.in/telebot.v4"
 )
 
-// MeditationStep represents a single step in a guided meditation.
 type MeditationStep struct {
 	Text     string
 	Duration time.Duration
 }
 
-// Meditations is a pool of mini-meditations, each is a slice of steps with text + duration.
 var Meditations = [][]MeditationStep{
-	// Body scan
 	{
 		{"🧘 Закрой глаза...", 5 * time.Second},
 		{"Почувствуй свои ступни на полу...", 8 * time.Second},
@@ -26,7 +23,6 @@ var Meditations = [][]MeditationStep{
 		{"Открой глаза когда будешь готов.", 5 * time.Second},
 		{"✅ *Готово.* Как тело?", 0},
 	},
-	// 5-4-3-2-1 grounding
 	{
 		{"🧘 Сядь удобно...", 5 * time.Second},
 		{"Назови 5 вещей которые видишь...", 12 * time.Second},
@@ -36,7 +32,6 @@ var Meditations = [][]MeditationStep{
 		{"1 вкус...", 6 * time.Second},
 		{"✅ *Ты здесь и сейчас.*", 0},
 	},
-	// Quick calm
 	{
 		{"🧘 Стоп. Пауза.", 5 * time.Second},
 		{"Три глубоких вдоха...", 10 * time.Second},
@@ -46,7 +41,6 @@ var Meditations = [][]MeditationStep{
 	},
 }
 
-// RunMeditation guides the user through a randomly selected meditation by editing the message.
 func RunMeditation(bot *tele.Bot, msg *tele.Message, onComplete func()) {
 	meditation := Meditations[rand.Intn(len(Meditations))]
 	for _, step := range meditation {

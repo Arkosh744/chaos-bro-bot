@@ -9,10 +9,7 @@ import (
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
 )
 
-// AnalyzeStyle examines recent user messages and produces a human-readable
-// description of the writing style to inject into MirrorPrompt.
 func AnalyzeStyle(messages []storage.Message) string {
-	// Filter only user messages
 	var userTexts []string
 	for _, m := range messages {
 		if m.Role == "user" {
@@ -63,7 +60,6 @@ func AnalyzeStyle(messages []storage.Message) string {
 
 	var traits []string
 
-	// Average message length
 	switch {
 	case avgLen < 15:
 		traits = append(traits, "Пишет ОЧЕНЬ коротко (1-2 слова)")
@@ -75,7 +71,6 @@ func AnalyzeStyle(messages []storage.Message) string {
 		traits = append(traits, "Пишет длинными сообщениями")
 	}
 
-	// Caps usage
 	if totalChars > 0 {
 		capsRatio := float64(capsCount) / float64(totalChars)
 		if capsRatio > 0.3 {
@@ -83,7 +78,6 @@ func AnalyzeStyle(messages []storage.Message) string {
 		}
 	}
 
-	// Punctuation
 	noPunctRatio := float64(noPunctuation) / float64(msgCount)
 	if noPunctRatio > 0.7 {
 		traits = append(traits, "Не ставит точки в конце предложений")
@@ -101,14 +95,12 @@ func AnalyzeStyle(messages []storage.Message) string {
 		traits = append(traits, "Использует многоточие...")
 	}
 
-	// Emoji
 	if emojiCount > msgCount {
 		traits = append(traits, "Активно использует эмоджи")
 	} else if emojiCount == 0 {
 		traits = append(traits, "Не использует эмоджи")
 	}
 
-	// Sample messages for Claude to see the raw style
 	var samples []string
 	limit := 5
 	if len(userTexts) < limit {
@@ -124,7 +116,6 @@ func AnalyzeStyle(messages []storage.Message) string {
 	return result
 }
 
-// countEmojis returns a rough count of emoji characters in the text.
 func countEmojis(text string) int {
 	count := 0
 	for _, r := range text {

@@ -15,7 +15,6 @@ import (
 
 // --- Duel ---
 
-// handleDuel initiates a duel in a group chat via reply to another user's message.
 func (b *Bot) handleDuel(c tele.Context) error {
 	if !isGroupChat(c) {
 		return c.Send("Дуэли работают только в группах. Найди себе соперника.")
@@ -25,7 +24,6 @@ func (b *Bot) handleDuel(c tele.Context) error {
 	challengerID := c.Sender().ID
 	log.Printf("[%d] /duel in chat %d", challengerID, chatID)
 
-	// Must be a reply to someone's message
 	if c.Message().ReplyTo == nil || c.Message().ReplyTo.Sender == nil {
 		return c.Send("Ответь на сообщение того, кого хочешь вызвать на дуэль.")
 	}
@@ -33,17 +31,14 @@ func (b *Bot) handleDuel(c tele.Context) error {
 	opponent := c.Message().ReplyTo.Sender
 	opponentID := opponent.ID
 
-	// Cannot duel yourself
 	if opponentID == challengerID {
 		return c.Send("Дуэль с собой? Ты либо гений, либо одинок.")
 	}
 
-	// Cannot duel the bot
 	if opponentID == b.tg.Me.ID {
 		return c.Send("Не-не-не, я судья, а не участник.")
 	}
 
-	// Check for existing active duel
 	existing, err := b.store.GetActiveDuel(chatID)
 	if err != nil {
 		log.Printf("[%d] get active duel error: %v", chatID, err)
@@ -53,7 +48,6 @@ func (b *Bot) handleDuel(c tele.Context) error {
 		return c.Send("В этом чате уже идёт дуэль. Дождись окончания.")
 	}
 
-	// Generate a duel question via Claude
 	replyFn, stop := b.startThinking(c)
 	question, err := b.claude.Ask(context.Background(), features.DuelQuestionPrompt, "Придумай вопрос для дуэли")
 	if err != nil {
@@ -77,7 +71,6 @@ func (b *Bot) handleDuel(c tele.Context) error {
 	msg := fmt.Sprintf("Duel!\n\n%s vs %s\n\nВопрос: %s\n\nОба пишите ответ прямо в чат. У вас 60 секунд!",
 		challengerName, opponentName, question)
 
-	// Auto-cancel duel after 60 seconds if both haven't answered
 	go func() {
 		time.Sleep(60 * time.Second)
 		duel, err := b.store.GetActiveDuel(chatID)
@@ -91,8 +84,6 @@ func (b *Bot) handleDuel(c tele.Context) error {
 	return replyFn(msg)
 }
 
-// handleDuelAnswer checks if a group message is a duel answer.
-// Returns true if the message was consumed as a duel answer.
 func (b *Bot) handleDuelAnswer(c tele.Context) bool {
 	chatID := c.Chat().ID
 	userID := c.Sender().ID
@@ -102,14 +93,12 @@ func (b *Bot) handleDuelAnswer(c tele.Context) bool {
 		return false
 	}
 
-	// Check if sender is a participant
 	isChallenger := userID == duel.ChallengerID
 	isOpponent := userID == duel.OpponentID
 	if !isChallenger && !isOpponent {
 		return false
 	}
 
-	// Check if already answered
 	if isChallenger && duel.ChallengerAnswer != "" {
 		return false
 	}
@@ -126,14 +115,12 @@ func (b *Bot) handleDuelAnswer(c tele.Context) bool {
 	senderName := c.Sender().FirstName
 	log.Printf("[%d] duel #%d: %s answered", chatID, duel.ID, senderName)
 
-	// Refresh duel state after saving the answer
 	if isChallenger {
 		duel.ChallengerAnswer = answer
 	} else {
 		duel.OpponentAnswer = answer
 	}
 
-	// Check if both have answered
 	if duel.ChallengerAnswer == "" || duel.OpponentAnswer == "" {
 		if err := c.Send(fmt.Sprintf("%s ответил! Ждём второго участника...", senderName)); err != nil {
 			log.Printf("[%d] duel waiting send error: %v", chatID, err)
@@ -141,12 +128,10 @@ func (b *Bot) handleDuelAnswer(c tele.Context) bool {
 		return true
 	}
 
-	// Both answered: judge the duel
 	go b.judgeDuel(c, duel)
 	return true
 }
 
-// judgeDuel sends both answers to Claude for judging and announces the winner.
 func (b *Bot) judgeDuel(c tele.Context, duel *storage.Duel) {
 	chatID := duel.ChatID
 	judgePrompt := fmt.Sprintf(features.DuelJudgePrompt, duel.Question, duel.ChallengerAnswer, duel.OpponentAnswer)
@@ -161,7 +146,6 @@ func (b *Bot) judgeDuel(c tele.Context, duel *storage.Duel) {
 		return
 	}
 
-	// Parse result: ПОБЕДИТЕЛЬ|N|explanation
 	result = strings.TrimSpace(strings.ToUpper(result))
 	var winnerNum int
 	var explanation string
@@ -179,7 +163,6 @@ func (b *Bot) judgeDuel(c tele.Context, duel *storage.Duel) {
 	var winnerID int64
 	var winnerName string
 
-	// Get names for the announcement
 	_, challengerFirst, _, _ := b.store.GetUserProfile(duel.ChallengerID)
 	_, opponentFirst, _, _ := b.store.GetUserProfile(duel.OpponentID)
 	if challengerFirst == "" {
@@ -197,7 +180,6 @@ func (b *Bot) judgeDuel(c tele.Context, duel *storage.Duel) {
 		winnerID = duel.OpponentID
 		winnerName = opponentFirst
 	default:
-		// Parse failed — pick random winner as fallback
 		if rand.Intn(2) == 0 {
 			winnerID = duel.ChallengerID
 			winnerName = challengerFirst
@@ -215,7 +197,6 @@ func (b *Bot) judgeDuel(c tele.Context, duel *storage.Duel) {
 		log.Printf("[%d] complete duel error: %v", chatID, err)
 	}
 
-	// Award duel_win achievement to the winner
 	if winnerID != 0 {
 		unlocked := features.CheckAchievements(b.store, winnerID, "duel_win")
 		for _, achMsg := range unlocked {
@@ -241,7 +222,6 @@ func (b *Bot) judgeDuel(c tele.Context, duel *storage.Duel) {
 
 // --- Group Quest ---
 
-// handleQuest generates and sends a quest to the group chat.
 func (b *Bot) handleQuest(c tele.Context) error {
 	if !isGroupChat(c) {
 		return c.Send("Квесты работают только в группах.")
@@ -250,7 +230,6 @@ func (b *Bot) handleQuest(c tele.Context) error {
 	chatID := c.Chat().ID
 	log.Printf("[%d] /quest in chat %d", c.Sender().ID, chatID)
 
-	// Check for existing active quest
 	existing, err := b.store.GetActiveQuest(chatID)
 	if err != nil {
 		log.Printf("[%d] get active quest error: %v", chatID, err)
@@ -279,8 +258,6 @@ func (b *Bot) handleQuest(c tele.Context) error {
 	return replyFn(fmt.Sprintf("Квест!\n\n%s\n\nПервый кто выполнит — побеждает. Пишите ответ прямо в чат!", quest))
 }
 
-// handleQuestAnswer checks if a group message completes an active quest.
-// Returns true if the message was consumed as a quest attempt.
 func (b *Bot) handleQuestAnswer(c tele.Context) bool {
 	chatID := c.Chat().ID
 
@@ -292,14 +269,13 @@ func (b *Bot) handleQuestAnswer(c tele.Context) bool {
 	text := c.Text()
 	userID := c.Sender().ID
 
-	// Throttle: only judge every 3 messages to save Claude calls
+	// Throttle: only judge every 3rd message to save Claude calls
 	countKey := fmt.Sprintf("quest_msgs_%d", quest.ID)
 	count, _ := b.store.IncrementCounter(chatID, countKey)
 	if count%3 != 0 {
 		return false // skip judging this message
 	}
 
-	// Ask Claude to judge if the answer completes the quest
 	judgePrompt := fmt.Sprintf(features.GroupQuestJudgePrompt, quest.Quest, text)
 	result, err := b.claude.Ask(context.Background(), judgePrompt, "Оцени ответ")
 	if err != nil {
@@ -307,13 +283,11 @@ func (b *Bot) handleQuestAnswer(c tele.Context) bool {
 		return false
 	}
 
-	// Parse: РЕЗУЛЬТАТ|да or РЕЗУЛЬТАТ|нет
 	result = strings.TrimSpace(strings.ToLower(result))
 	if !strings.Contains(result, "|да") && !strings.Contains(result, "| да") {
 		return false
 	}
 
-	// Winner found
 	if err := b.store.CompleteQuest(quest.ID, userID); err != nil {
 		log.Printf("[%d] complete quest error: %v", chatID, err)
 	}
@@ -331,14 +305,12 @@ func (b *Bot) handleQuestAnswer(c tele.Context) bool {
 
 // --- Linked Users ---
 
-// handleLink creates or confirms a link between two users.
 func (b *Bot) handleLink(c tele.Context) error {
 	userID := c.Sender().ID
 	payload := c.Message().Payload
 	log.Printf("[%d] /link: %s", userID, payload)
 
 	if payload == "" {
-		// Check if replying to someone's message
 		if c.Message().ReplyTo != nil && c.Message().ReplyTo.Sender != nil {
 			target := c.Message().ReplyTo.Sender
 			return b.processLink(c, userID, target.ID, target.FirstName)
@@ -346,13 +318,11 @@ func (b *Bot) handleLink(c tele.Context) error {
 		return c.Send("Формат: /link (ответом на сообщение) или /link @username")
 	}
 
-	// Parse @username from payload
 	username := strings.TrimPrefix(strings.TrimSpace(payload), "@")
 	if username == "" {
 		return c.Send("Формат: /link @username")
 	}
 
-	// Look up user by username in profiles
 	targetID, err := b.findUserByUsername(username)
 	if err != nil || targetID == 0 {
 		return c.Send("Не нашёл пользователя. Он должен хотя бы раз написать боту.")
@@ -370,9 +340,7 @@ func (b *Bot) handleLink(c tele.Context) error {
 	return b.processLink(c, userID, targetID, firstName)
 }
 
-// processLink handles the link logic: create request or confirm existing.
 func (b *Bot) processLink(c tele.Context, userID, targetID int64, targetName string) error {
-	// Check if already linked
 	existingPartner, err := b.store.GetLinkedUser(userID)
 	if err != nil {
 		log.Printf("[%d] get linked user error: %v", userID, err)
@@ -382,7 +350,6 @@ func (b *Bot) processLink(c tele.Context, userID, targetID int64, targetName str
 		return c.Send("Ты уже связан с кем-то. Сначала /unlink.")
 	}
 
-	// Check if target sent us a pending request
 	hasPending, err := b.store.GetPendingLink(targetID, userID)
 	if err != nil {
 		log.Printf("[%d] get pending link error: %v", userID, err)
@@ -390,7 +357,6 @@ func (b *Bot) processLink(c tele.Context, userID, targetID int64, targetName str
 	}
 
 	if hasPending {
-		// Confirm the link
 		if err := b.store.AcceptLink(targetID, userID); err != nil {
 			log.Printf("[%d] accept link error: %v", userID, err)
 			return c.Send("Не удалось подтвердить связь.")
@@ -399,7 +365,6 @@ func (b *Bot) processLink(c tele.Context, userID, targetID int64, targetName str
 		senderName := c.Sender().FirstName
 		log.Printf("[%d] link confirmed with %d", userID, targetID)
 
-		// Notify the other user
 		notifyMsg := fmt.Sprintf("%s принял твой запрос на связь! Теперь вы связаны.", senderName)
 		recipient := &tele.User{ID: targetID}
 		if _, err := b.tg.Send(recipient, notifyMsg); err != nil {
@@ -409,7 +374,6 @@ func (b *Bot) processLink(c tele.Context, userID, targetID int64, targetName str
 		return c.Send(fmt.Sprintf("Связь с %s установлена!", targetName))
 	}
 
-	// Check if we already sent a pending request
 	alreadySent, err := b.store.GetPendingLink(userID, targetID)
 	if err != nil {
 		log.Printf("[%d] check existing link error: %v", userID, err)
@@ -419,7 +383,6 @@ func (b *Bot) processLink(c tele.Context, userID, targetID int64, targetName str
 		return c.Send("Ты уже отправил запрос. Жди подтверждения.")
 	}
 
-	// Create new pending link
 	if err := b.store.CreateLink(userID, targetID); err != nil {
 		log.Printf("[%d] create link error: %v", userID, err)
 		return c.Send("Не удалось создать запрос.")
@@ -428,7 +391,6 @@ func (b *Bot) processLink(c tele.Context, userID, targetID int64, targetName str
 	senderName := c.Sender().FirstName
 	log.Printf("[%d] link request sent to %d", userID, targetID)
 
-	// Notify target
 	notifyMsg := fmt.Sprintf("%s хочет связать ваши аккаунты! Напиши /link @%s чтобы подтвердить.",
 		senderName, c.Sender().Username)
 	recipient := &tele.User{ID: targetID}
@@ -439,7 +401,6 @@ func (b *Bot) processLink(c tele.Context, userID, targetID int64, targetName str
 	return c.Send(fmt.Sprintf("Запрос на связь отправлен %s. Ждём подтверждения.", targetName))
 }
 
-// handleUnlink removes a link between the user and their partner.
 func (b *Bot) handleUnlink(c tele.Context) error {
 	userID := c.Sender().ID
 	log.Printf("[%d] /unlink", userID)
@@ -459,7 +420,6 @@ func (b *Bot) handleUnlink(c tele.Context) error {
 		return c.Send("Не удалось разорвать связь.")
 	}
 
-	// Notify partner
 	senderName := c.Sender().FirstName
 	notifyMsg := fmt.Sprintf("%s разорвал связь.", senderName)
 	recipient := &tele.User{ID: partnerID}
@@ -471,7 +431,6 @@ func (b *Bot) handleUnlink(c tele.Context) error {
 	return c.Send("Связь разорвана.")
 }
 
-// findUserByUsername searches the user_profiles table by username.
 func (b *Bot) findUserByUsername(username string) (int64, error) {
 	var userID int64
 	err := b.store.FindUserByUsername(username, &userID)
