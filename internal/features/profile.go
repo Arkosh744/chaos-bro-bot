@@ -10,7 +10,8 @@ import (
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
 )
 
-var categoryLabels = map[string]string{
+// CategoryLabels maps profile fact categories to their display labels.
+var CategoryLabels = map[string]string{
 	"name":          "👤 Имя",
 	"age":           "🎂 Возраст",
 	"city":          "📍 Город",
@@ -76,7 +77,7 @@ func ExtractFacts(ctx context.Context, cl *claude.Client, store *storage.Storage
 		category := strings.TrimSpace(parts[0])
 		fact := strings.TrimSpace(parts[1])
 
-		if _, ok := categoryLabels[category]; !ok {
+		if _, ok := CategoryLabels[category]; !ok {
 			continue
 		}
 		if fact == "" {
@@ -100,7 +101,7 @@ func FormatProfile(facts []storage.UserFact) string {
 	sb.WriteString("📋 *Твой профиль:*\n\n")
 
 	for _, f := range facts {
-		label, ok := categoryLabels[f.Category]
+		label, ok := CategoryLabels[f.Category]
 		if !ok {
 			label = f.Category
 		}

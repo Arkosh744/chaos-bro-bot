@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"os/exec"
 	"strings"
 	"sync"
@@ -16,7 +17,43 @@ import (
 const (
 	offlineThreshold   = 3
 	offlineRetryPeriod = 5 * time.Minute
+	maxCacheResponses  = 10
+	cacheKeyLength     = 50
 )
+
+// responseCache stores recent responses keyed by prompt prefix for offline fallback.
+type responseCache struct {
+	mu    sync.RWMutex
+	items map[string][]string // promptKey -> last N responses
+}
+
+var cache = &responseCache{items: make(map[string][]string)}
+
+func (rc *responseCache) Add(key, response string) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.items[key] = append(rc.items[key], response)
+	if len(rc.items[key]) > maxCacheResponses {
+		rc.items[key] = rc.items[key][1:]
+	}
+}
+
+func (rc *responseCache) GetRandom(key string) (string, bool) {
+	rc.mu.RLock()
+	defer rc.mu.RUnlock()
+	items := rc.items[key]
+	if len(items) == 0 {
+		return "", false
+	}
+	return items[rand.Intn(len(items))], true
+}
+
+func cacheKey(systemPrompt string) string {
+	if len(systemPrompt) > cacheKeyLength {
+		return systemPrompt[:cacheKeyLength]
+	}
+	return systemPrompt
+}
 
 type Client struct {
 	model   string
@@ -170,10 +207,17 @@ func (c *Client) AskWithModel(ctx context.Context, model, systemPrompt, userMess
 		return "", fmt.Errorf("blocked: dangerous input detected")
 	}
 
+	key := cacheKey(systemPrompt)
+
 	c.mu.Lock()
 	if c.offlineMode {
 		if time.Since(c.lastRetry) < offlineRetryPeriod {
 			c.mu.Unlock()
+			// Try cache before returning error
+			if cached, ok := cache.GetRandom(key); ok {
+				log.Println("Claude: serving cached response in offline mode")
+				return cached, nil
+			}
 			return "", fmt.Errorf("claude offline mode: using fallbacks")
 		}
 		// Enough time passed, attempt a real call to check recovery
@@ -223,6 +267,13 @@ func (c *Client) AskWithModel(ctx context.Context, model, systemPrompt, userMess
 			log.Printf("Claude: entering offline mode after %d consecutive failures", c.consecutiveFailures)
 		}
 		c.mu.Unlock()
+
+		// Try cache on error before giving up
+		if cached, ok := cache.GetRandom(key); ok {
+			log.Println("Claude: serving cached response after error")
+			return cached, nil
+		}
+
 		return "", fmt.Errorf("claude -p: %w (stderr: %s)", err, stderr.String())
 	}
 
@@ -236,5 +287,10 @@ func (c *Client) AskWithModel(ctx context.Context, model, systemPrompt, userMess
 	c.offlineMode = false
 	c.mu.Unlock()
 
-	return SanitizeOutput(strings.TrimSpace(stdout.String())), nil
+	result := SanitizeOutput(strings.TrimSpace(stdout.String()))
+
+	// Cache successful response for offline fallback
+	cache.Add(key, result)
+
+	return result, nil
 }

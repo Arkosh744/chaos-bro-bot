@@ -48,8 +48,64 @@ func (b *Bot) handleDuel(c tele.Context) error {
 		return c.Send("В этом чате уже идёт дуэль. Дождись окончания.")
 	}
 
+	// Store opponent ID for category callback
+	b.store.SetCounter(challengerID, "duel_opponent", int(opponentID))
+
+	// Show category selection
+	inline := &tele.ReplyMarkup{}
+	inline.Inline(
+		inline.Row(
+			inline.Data("\U0001F9E0 Знания", "duel_cat_knowledge"),
+			inline.Data("\U0001F602 Юмор", "duel_cat_humor"),
+		),
+		inline.Row(
+			inline.Data("\U0001F3AE Игры", "duel_cat_games"),
+			inline.Data("\U0001F92A Абсурд", "duel_cat_absurd"),
+		),
+	)
+
+	challengerName := c.Sender().FirstName
+	opponentName := opponent.FirstName
+
+	return c.Send(fmt.Sprintf("Дуэль! %s vs %s\n\nВыбери категорию:", challengerName, opponentName), inline)
+}
+
+func (b *Bot) handleDuelCategory(c tele.Context, category string) error {
+	chatID := c.Chat().ID
+	challengerID := c.Sender().ID
+
+	opponentIDInt, _ := b.store.GetCounter(challengerID, "duel_opponent")
+	opponentID := int64(opponentIDInt)
+	if opponentID == 0 {
+		return c.Edit("Дуэль устарела. Начни заново /duel.")
+	}
+
+	// Clear stored opponent
+	b.store.SetCounter(challengerID, "duel_opponent", 0)
+
+	existing, err := b.store.GetActiveDuel(chatID)
+	if err != nil {
+		log.Printf("[%d] duel category check error: %v", chatID, err)
+		return c.Edit("Что-то пошло не так. Попробуй позже.")
+	}
+	if existing != nil {
+		return c.Edit("В этом чате уже идёт дуэль. Дождись окончания.")
+	}
+
+	categoryPrompts := map[string]string{
+		"knowledge": "Придумай вопрос на эрудицию/знания для дуэли. Вопрос должен быть интересным и иметь неочевидный ответ.",
+		"humor":     "Придумай смешной вопрос или задание на юмор для дуэли. Кто ответит смешнее — тот победит.",
+		"games":     "Придумай вопрос про видеоигры для дуэли. Может быть про механики, лор, персонажей — любую тему.",
+		"absurd":    "Придумай максимально абсурдный и дурацкий вопрос для дуэли. Чем абсурднее ответ — тем лучше.",
+	}
+
+	prompt := features.DuelQuestionPrompt
+	if catPrompt, ok := categoryPrompts[category]; ok {
+		prompt = catPrompt + " Одно предложение. На русском."
+	}
+
 	replyFn, stop := b.startThinking(c)
-	question, err := b.claude.Ask(context.Background(), features.DuelQuestionPrompt, "Придумай вопрос для дуэли")
+	question, err := b.claude.Ask(context.Background(), prompt, "Придумай вопрос для дуэли")
 	if err != nil {
 		stop()
 		log.Printf("[%d] duel question generate error: %v", chatID, err)
@@ -63,13 +119,19 @@ func (b *Bot) handleDuel(c tele.Context) error {
 		return c.Send("Не удалось создать дуэль.")
 	}
 
-	challengerName := c.Sender().FirstName
-	opponentName := opponent.FirstName
+	_, challengerFirst, _, _ := b.store.GetUserProfile(challengerID)
+	_, opponentFirst, _, _ := b.store.GetUserProfile(opponentID)
+	if challengerFirst == "" {
+		challengerFirst = "Игрок 1"
+	}
+	if opponentFirst == "" {
+		opponentFirst = "Игрок 2"
+	}
 
-	log.Printf("[%d] duel #%d created: %s vs %s", chatID, duelID, challengerName, opponentName)
+	log.Printf("[%d] duel #%d created: %s vs %s (cat: %s)", chatID, duelID, challengerFirst, opponentFirst, category)
 
 	msg := fmt.Sprintf("Duel!\n\n%s vs %s\n\nВопрос: %s\n\nОба пишите ответ прямо в чат. У вас 60 секунд!",
-		challengerName, opponentName, question)
+		challengerFirst, opponentFirst, question)
 
 	go func() {
 		time.Sleep(60 * time.Second)

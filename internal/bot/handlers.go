@@ -99,6 +99,41 @@ func (b *Bot) claudeReply(c tele.Context, ask func() (string, error), prefix str
 	return replyFn(prefix+result, menu)
 }
 
+// claudeReplyWithRepeat is like claudeReply but adds an inline "repeat" button.
+func (b *Bot) claudeReplyWithRepeat(c tele.Context, ask func() (string, error), prefix, repeatCallback string) error {
+	userID := c.Sender().ID
+	if !b.checkRateLimit(userID) {
+		return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+	}
+
+	trigger := c.Text()
+	if trigger == "" {
+		trigger = "[button]"
+	}
+	if _, err := b.store.SaveMessage(userID, "user", trigger); err != nil {
+		log.Printf("[%d] save trigger error: %v", userID, err)
+	}
+
+	replyFn, stop := b.startThinking(c)
+	result, err := ask()
+	if err != nil {
+		stop()
+		log.Printf("[%d] claude error: %v", userID, err)
+		return c.Send(prefix+features.RandomFallback(), menu)
+	}
+	b.incrementRateLimit(userID)
+
+	if _, err := b.store.SaveMessage(userID, "bot", prefix+result); err != nil {
+		log.Printf("[%d] save claude reply error: %v", userID, err)
+	}
+
+	inline := &tele.ReplyMarkup{}
+	btn := inline.Data("\U0001F504 Ещё", repeatCallback)
+	inline.Inline(inline.Row(btn))
+
+	return replyFn(prefix+result, menu, inline)
+}
+
 func (b *Bot) handleAchievements(c tele.Context) error {
 	userID := c.Sender().ID
 	names, err := b.store.GetAchievements(userID)
@@ -383,14 +418,14 @@ func (b *Bot) handlePrediction(c tele.Context) error {
 	log.Printf("[%d] prediction", userID)
 	defer b.checkAndSendAchievements(c, "prediction")
 
-	return b.claudeReply(c, func() (string, error) {
+	return b.claudeReplyWithRepeat(c, func() (string, error) {
 		userCtx := b.buildUserContext(userID)
 		prompt := features.PredictionPrompt
 		if userCtx != "" {
 			prompt = prompt + "\n\nКонтекст пользователя:\n" + userCtx
 		}
 		return b.claude.Ask(context.Background(), prompt, "Предскажи")
-	}, "🔮 ")
+	}, "🔮 ", "repeat_prediction")
 }
 
 func (b *Bot) handleSilence(c tele.Context) error {
@@ -508,6 +543,25 @@ func (b *Bot) handleText(c tele.Context) error {
 	// Save user message (private chat)
 	if _, err := b.store.SaveMessage(userID, "user", text); err != nil {
 		log.Printf("[%d] save message error: %v", userID, err)
+	}
+
+	// Profile editing mode: save fact from user input
+	if editing, _ := b.store.GetCounter(userID, "profile_editing"); editing > 0 {
+		b.store.SetCounter(userID, "profile_editing", 0)
+		parts := strings.SplitN(text, ":", 2)
+		if len(parts) == 2 {
+			category := strings.TrimSpace(parts[0])
+			fact := strings.TrimSpace(parts[1])
+			if _, ok := features.CategoryLabels[category]; ok && fact != "" {
+				if err := b.store.SaveFact(userID, category, fact); err != nil {
+					log.Printf("[%d] save profile fact error: %v", userID, err)
+					return c.Send("Не удалось сохранить. Попробуй ещё раз.", menu)
+				}
+				label := features.CategoryLabels[category]
+				return c.Send(fmt.Sprintf("\u2705 Обновлено: %s: %s", label, fact), menu)
+			}
+		}
+		return c.Send("Неверный формат. Используй: категория: значение\nПример: job: Go разработчик", menu)
 	}
 
 	// Active game check: dispatch to game handler before main logic
@@ -1164,7 +1218,18 @@ func (b *Bot) handleProfile(c tele.Context) error {
 		return c.Send(features.RandomFallback(), menu)
 	}
 
-	return c.Send(features.FormatProfile(facts), menu, tele.ModeMarkdown)
+	inline := &tele.ReplyMarkup{}
+	btn := inline.Data("\u270F\uFE0F Редактировать", "edit_profile")
+	inline.Inline(inline.Row(btn))
+
+	return c.Send(features.FormatProfile(facts), menu, tele.ModeMarkdown, inline)
+}
+
+func (b *Bot) handleEditProfile(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] edit_profile callback", userID)
+	b.store.SetCounter(userID, "profile_editing", 1)
+	return c.Send("Напиши факт в формате: категория: значение\nПример: job: Go разработчик\n\nДоступные категории: name, age, city, job, hobbies, music, games, food, relationships, pets, goals, quirks", menu)
 }
 
 func (b *Bot) handleMoodGraph(c tele.Context) error {
@@ -1272,20 +1337,43 @@ func (b *Bot) handleRoast(c tele.Context) error {
 	defer b.checkAndSendAchievements(c, "roast")
 
 	userCtx := b.buildUserContext(userID)
-	prompt := fmt.Sprintf(features.RoastPrompt, userCtx)
 
-	return b.claudeReply(c, func() (string, error) {
+	// Enrich roast with recent user quotes for personalization
+	msgs, _ := b.store.GetLastMessages(userID, 20)
+	var recentQuotes []string
+	for _, m := range msgs {
+		if m.Role == "user" && len(m.Text) > 10 {
+			recentQuotes = append(recentQuotes, m.Text)
+		}
+	}
+	quotesCtx := ""
+	if len(recentQuotes) > 0 {
+		picked := recentQuotes
+		if len(picked) > 3 {
+			// Pick 3 random quotes
+			rand.Shuffle(len(picked), func(i, j int) { picked[i], picked[j] = picked[j], picked[i] })
+			picked = picked[:3]
+		}
+		quotesCtx = "\n\nНедавние цитаты пользователя (используй для roast):\n"
+		for _, q := range picked {
+			quotesCtx += "- \"" + q + "\"\n"
+		}
+	}
+
+	prompt := fmt.Sprintf(features.RoastPrompt, userCtx) + quotesCtx
+
+	return b.claudeReplyWithRepeat(c, func() (string, error) {
 		return b.claude.AskWithModel(context.Background(), b.smartModel, prompt, "Зароасти меня")
-	}, "")
+	}, "", "repeat_roast")
 }
 
 func (b *Bot) handleWisdom(c tele.Context) error {
 	log.Printf("[%d] /wisdom", c.Sender().ID)
 	defer b.checkAndSendAchievements(c, "wisdom")
 
-	return b.claudeReply(c, func() (string, error) {
+	return b.claudeReplyWithRepeat(c, func() (string, error) {
 		return b.claude.Ask(context.Background(), features.WisdomPrompt, "Дай мудрость")
-	}, "\U0001F9D9 ")
+	}, "\U0001F9D9 ", "repeat_wisdom")
 }
 
 func (b *Bot) handleHoroscope(c tele.Context) error {
@@ -1295,9 +1383,9 @@ func (b *Bot) handleHoroscope(c tele.Context) error {
 	today := time.Now().Format("2 January 2006")
 	prompt := fmt.Sprintf(features.AntiHoroscopePrompt, today)
 
-	return b.claudeReply(c, func() (string, error) {
+	return b.claudeReplyWithRepeat(c, func() (string, error) {
 		return b.claude.Ask(context.Background(), prompt, "Антигороскоп на сегодня")
-	}, "\u2B50 ")
+	}, "\u2B50 ", "repeat_horoscope")
 }
 
 func (b *Bot) handlePlaylist(c tele.Context) error {
@@ -1861,6 +1949,27 @@ func (b *Bot) handleTop(c tele.Context) error {
 
 	if len(users) == 0 {
 		return c.Send("Пока никого нет. Ты будешь первым.", b.replyOpts(c))
+	}
+
+	// In group chat, filter to only group members
+	if isGroupChat(c) {
+		chatID := c.Chat().ID
+		groupUserIDs, _ := b.store.GetGroupUserIDs(chatID)
+		if len(groupUserIDs) > 0 {
+			memberSet := make(map[int64]bool, len(groupUserIDs))
+			for _, uid := range groupUserIDs {
+				memberSet[uid] = true
+			}
+			var filtered []storage.UserInfo
+			for _, u := range users {
+				if memberSet[u.UserID] {
+					filtered = append(filtered, u)
+				}
+			}
+			if len(filtered) > 0 {
+				users = filtered
+			}
+		}
 	}
 
 	// Sort by message count descending

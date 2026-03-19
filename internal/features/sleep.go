@@ -110,5 +110,18 @@ func FormatSleepReport(days []SleepDay) string {
 		sb.WriteString(fmt.Sprintf("Позже всего ложишься: %s (%s). Кабан бы не одобрил.", latestSleepDay, latestSleep))
 	}
 
+	// Sleep recommendations based on data
+	if avg < 6 {
+		sb.WriteString("\n\n\u26A0\uFE0F Ты спишь в среднем меньше 6 часов. Это пиздец. Серьёзно, ложись раньше.")
+	} else if avg < 7 {
+		sb.WriteString("\n\n\u26A0\uFE0F Меньше 7 часов в среднем. Не критично, но мозг точно не благодарен.")
+	}
+
+	if latestSleep != "" && latestSleep >= "02:00" {
+		sb.WriteString("\n\n\U0001F319 Ложишься после 2 ночи. Попробуй хотя бы в 1. Твой организм скажет спасибо.")
+	} else if latestSleep != "" && latestSleep >= "01:00" {
+		sb.WriteString("\n\n\U0001F319 Поздно ложишься. Хотя бы до полуночи попробуй — будет легче вставать.")
+	}
+
 	return sb.String()
 }

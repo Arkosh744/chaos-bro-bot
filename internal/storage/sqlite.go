@@ -1836,6 +1836,56 @@ func (s *Storage) GetRecentAutoMoods(userID int64, limit int) ([]int, error) {
 
 // GetRuntimeConfigInt returns the integer value for a runtime config key.
 // Returns the provided defaultVal if the key is not found or cannot be parsed.
+// GetGroupUserIDs extracts distinct user IDs from group messages.
+// Group messages are stored with format "FirstName: text" under the chatID (negative for groups).
+// We parse sender names and look them up in user_profiles.
+func (s *Storage) GetGroupUserIDs(chatID int64) ([]int64, error) {
+	// Group messages are stored with chatID as user_id.
+	// Format: "SenderName: message text"
+	// We extract unique sender names and resolve them to user IDs.
+	rows, err := s.db.Query(`
+		SELECT DISTINCT SUBSTR(text, 1, INSTR(text, ': ') - 1) AS sender_name
+		FROM messages
+		WHERE user_id = ? AND role = 'user' AND INSTR(text, ': ') > 0
+		LIMIT 100`,
+		chatID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get group user names: %w", err)
+	}
+	defer rows.Close()
+
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			continue
+		}
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+
+	if len(names) == 0 {
+		return nil, nil
+	}
+
+	// Resolve first_name -> user_id from user_profiles
+	var userIDs []int64
+	for _, name := range names {
+		var uid int64
+		err := s.db.QueryRow(
+			"SELECT user_id FROM user_profiles WHERE first_name = ? LIMIT 1",
+			name,
+		).Scan(&uid)
+		if err == nil && uid > 0 {
+			userIDs = append(userIDs, uid)
+		}
+	}
+
+	return userIDs, nil
+}
+
 func (s *Storage) GetRuntimeConfigInt(key string, defaultVal int) int {
 	val, err := s.GetRuntimeConfig(key)
 	if err != nil || val == "" {

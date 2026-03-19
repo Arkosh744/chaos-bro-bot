@@ -217,8 +217,29 @@ func (b *Bot) registerHandlers() {
 		})
 	}
 
+	// Profile edit inline button
+	b.tg.Handle(&tele.InlineButton{Unique: "edit_profile"}, b.handleEditProfile)
+
+	// Repeat inline buttons for roast/wisdom/horoscope/prediction
+	b.tg.Handle(&tele.InlineButton{Unique: "repeat_roast"}, b.handleRoast)
+	b.tg.Handle(&tele.InlineButton{Unique: "repeat_wisdom"}, b.handleWisdom)
+	b.tg.Handle(&tele.InlineButton{Unique: "repeat_horoscope"}, b.handleHoroscope)
+	b.tg.Handle(&tele.InlineButton{Unique: "repeat_prediction"}, b.handlePrediction)
+
 	// Social features
 	b.tg.Handle("/duel", b.handleDuel)
+	b.tg.Handle(&tele.InlineButton{Unique: "duel_cat_knowledge"}, func(c tele.Context) error {
+		return b.handleDuelCategory(c, "knowledge")
+	})
+	b.tg.Handle(&tele.InlineButton{Unique: "duel_cat_humor"}, func(c tele.Context) error {
+		return b.handleDuelCategory(c, "humor")
+	})
+	b.tg.Handle(&tele.InlineButton{Unique: "duel_cat_games"}, func(c tele.Context) error {
+		return b.handleDuelCategory(c, "games")
+	})
+	b.tg.Handle(&tele.InlineButton{Unique: "duel_cat_absurd"}, func(c tele.Context) error {
+		return b.handleDuelCategory(c, "absurd")
+	})
 	b.tg.Handle("/quest", b.handleQuest)
 	b.tg.Handle("/link", b.handleLink)
 	b.tg.Handle("/unlink", b.handleUnlink)
