@@ -110,11 +110,60 @@ func (b *Bot) handleAchievements(c tele.Context) error {
 	}
 
 	msg := "\U0001F3C6 Твои ачивки:\n\n"
+	unlockedSet := make(map[string]bool, len(names))
 	for _, name := range names {
+		unlockedSet[name] = true
 		if def, ok := features.Achievements[name]; ok {
 			msg += fmt.Sprintf("%s %s — %s\n", def.Emoji, def.Name, def.Desc)
 		}
 	}
+
+	// Show progress for closest locked count-based achievements
+	msgCount, _ := b.store.GetCounter(userID, "messages")
+	type achProgress struct {
+		name     string
+		emoji    string
+		current  int
+		target   int
+		achName  string
+	}
+	var progress []achProgress
+	countAchs := map[string]int{
+		"chatterbox_50":  50,
+		"chatterbox_100": 100,
+		"chatterbox_500": 500,
+	}
+	for key, threshold := range countAchs {
+		if unlockedSet[key] {
+			continue
+		}
+		if msgCount > 0 && msgCount < threshold {
+			def := features.Achievements[key]
+			progress = append(progress, achProgress{
+				name: key, emoji: def.Emoji, current: msgCount, target: threshold, achName: def.Name,
+			})
+		}
+	}
+
+	// Sort by closest to unlock and take top 3
+	for i := 0; i < len(progress); i++ {
+		for j := i + 1; j < len(progress); j++ {
+			if float64(progress[j].current)/float64(progress[j].target) > float64(progress[i].current)/float64(progress[i].target) {
+				progress[i], progress[j] = progress[j], progress[i]
+			}
+		}
+	}
+	if len(progress) > 3 {
+		progress = progress[:3]
+	}
+
+	if len(progress) > 0 {
+		msg += "\nБлижайшие:\n"
+		for _, p := range progress {
+			msg += fmt.Sprintf("\U0001F512 %s %s (%d/%d)\n", p.emoji, p.achName, p.current, p.target)
+		}
+	}
+
 	return c.Send(msg, menu)
 }
 
@@ -211,8 +260,22 @@ func (b *Bot) handleHelp(c tele.Context) error {
 }
 
 func (b *Bot) handleStart(c tele.Context) error {
-	log.Printf("[%d] /start from %s", c.Sender().ID, c.Sender().Username)
+	userID := c.Sender().ID
+	log.Printf("[%d] /start from %s", userID, c.Sender().Username)
 	b.saveUserProfile(c)
+
+	// Check if returning user
+	msgCount, _ := b.store.GetMessageCount(userID)
+	if msgCount > 0 {
+		streak, _ := b.store.GetCounter(userID, "streak_days")
+		level := features.GetLevel(msgCount)
+		achievements, _ := b.store.GetAchievements(userID)
+
+		status := fmt.Sprintf("С возвращением! %s %s (ур. %d), streak: %d дн., ачивок: %d",
+			level.Emoji, level.Name, level.Level, streak, len(achievements))
+		return c.Send(status, menu)
+	}
+
 	name := tricksterNames[rand.Intn(len(tricksterNames))]
 	greeting := fmt.Sprintf("Йо. Я *%s*.", name)
 	if ego := features.GetAlterEgo(); ego != nil {
@@ -221,7 +284,7 @@ func (b *Bot) handleStart(c tele.Context) error {
 
 	// First message: intro
 	if err := c.Send(greeting+"\n\nЯ дерзкий друг-трикстер. Не коуч, не AI, не мамка.\nЖми кнопки или просто пиши мне. /help — все команды.", menu, tele.ModeMarkdown); err != nil {
-		log.Printf("[%d] start send error: %v", c.Sender().ID, err)
+		log.Printf("[%d] start send error: %v", userID, err)
 	}
 
 	// Second message: a welcome grounding technique
@@ -316,11 +379,17 @@ func (b *Bot) handleRandomize(c tele.Context) error {
 }
 
 func (b *Bot) handlePrediction(c tele.Context) error {
-	log.Printf("[%d] prediction", c.Sender().ID)
+	userID := c.Sender().ID
+	log.Printf("[%d] prediction", userID)
 	defer b.checkAndSendAchievements(c, "prediction")
 
 	return b.claudeReply(c, func() (string, error) {
-		return b.claude.Ask(context.Background(), features.PredictionPrompt, "Предскажи")
+		userCtx := b.buildUserContext(userID)
+		prompt := features.PredictionPrompt
+		if userCtx != "" {
+			prompt = prompt + "\n\nКонтекст пользователя:\n" + userCtx
+		}
+		return b.claude.Ask(context.Background(), prompt, "Предскажи")
 	}, "🔮 ")
 }
 
@@ -751,7 +820,110 @@ func (b *Bot) handleText(c tele.Context) error {
 		}
 	}
 
+	// Daily reward for first message of the day
+	b.checkDailyReward(c)
+
+	// Contextual suggestion (~10% chance, max 1 per day)
+	b.maybeSuggestFeature(c)
+
+	// Async sentiment analysis + mood drop detection
+	go func() {
+		score, sErr := features.AnalyzeSentiment(context.Background(), b.claude, text)
+		if sErr != nil {
+			return
+		}
+		if _, saveErr := b.store.SaveMessage(userID, "bot", fmt.Sprintf("[auto_mood:%d]", score)); saveErr != nil {
+			log.Printf("[%d] save auto_mood error: %v", userID, saveErr)
+		}
+
+		b.checkMoodDrop(userID)
+	}()
+
 	return nil
+}
+
+// checkDailyReward sends a daily reward for the first message of the day.
+func (b *Bot) checkDailyReward(c tele.Context) {
+	userID := c.Sender().ID
+	today := time.Now().Format("2006-01-02")
+	key := "daily_reward_" + today
+	claimed, _ := b.store.GetCounter(userID, key)
+	if claimed > 0 {
+		return
+	}
+
+	b.store.SetCounter(userID, key, 1)
+	rewards := []string{
+		"\U0001F381 Ежедневная награда: +1 к удаче. Действует до полуночи.",
+		"\U0001F381 Дроп дня: секретное знание — кошки спят 70% жизни.",
+		"\U0001F381 Бонус за вход: невидимый щит от хуйни.",
+		"\U0001F381 Награда дня: +3 к харизме. Используй с умом.",
+		"\U0001F381 Ежедневный лут: рецепт идеального дня — кофе, музыка, ноль дедлайнов.",
+		"\U0001F381 Дроп: секретный факт — осьминоги имеют три сердца.",
+		"\U0001F381 Бонус: +5 к самоиронии. Тебе пригодится.",
+		"\U0001F381 Награда: невидимая корона. Носи с достоинством.",
+		"\U0001F381 Дроп дня: право послать одного человека. Мысленно.",
+		"\U0001F381 Ежедневный бонус: временный иммунитет к понедельникам.",
+		"\U0001F381 Лут: загадочный свиток с текстом 'попей воды'.",
+		"\U0001F381 Награда дня: +1 к мудрости. Или это была иллюзия?",
+	}
+	reward := rewards[rand.Intn(len(rewards))]
+	if err := c.Send(reward, menu); err != nil {
+		log.Printf("[%d] daily reward send error: %v", userID, err)
+	}
+}
+
+// maybeSuggestFeature suggests an unused feature (~10% chance, max 1 per day).
+func (b *Bot) maybeSuggestFeature(c tele.Context) {
+	userID := c.Sender().ID
+	today := time.Now().Format("2006-01-02")
+	key := "suggestion_" + today
+	shown, _ := b.store.GetCounter(userID, key)
+	if shown > 0 || rand.Intn(10) != 0 {
+		return
+	}
+
+	suggestions := []string{
+		"\U0001F4A1 Кстати, попробуй /story — расскажу интерактивную историю.",
+		"\U0001F4A1 Знаешь про /habit? Могу трекать привычки.",
+		"\U0001F4A1 Попробуй /playlist — подберу музыку под настроение.",
+		"\U0001F4A1 /sleep покажет анализ твоего сна.",
+		"\U0001F4A1 /challenge — недельный челлендж. Попробуй.",
+		"\U0001F4A1 /meditate — мини-медитация прямо тут.",
+		"\U0001F4A1 Если грустно — /future. Получишь письмо от себя из будущего.",
+	}
+
+	b.store.SetCounter(userID, key, 1)
+	if err := c.Send(suggestions[rand.Intn(len(suggestions))], menu); err != nil {
+		log.Printf("[%d] suggestion send error: %v", userID, err)
+	}
+}
+
+// checkMoodDrop detects when user mood drops significantly and sends an empathetic message.
+func (b *Bot) checkMoodDrop(userID int64) {
+	moods, err := b.store.GetRecentAutoMoods(userID, 6)
+	if err != nil || len(moods) < 6 {
+		return
+	}
+
+	// moods[0..2] = most recent 3, moods[3..5] = previous 3
+	recentSum := 0
+	for _, m := range moods[:3] {
+		recentSum += m
+	}
+	previousSum := 0
+	for _, m := range moods[3:6] {
+		previousSum += m
+	}
+
+	recentAvg := float64(recentSum) / 3.0
+	previousAvg := float64(previousSum) / 3.0
+
+	if previousAvg-recentAvg >= 3.0 {
+		if _, err := b.tg.Send(&tele.User{ID: userID}, "Эй, я заметил что ты как-то сдулся. Если хочешь поговорить — я тут. А нет — ну и ладно. \U0001F417"); err != nil {
+			log.Printf("[%d] mood drop send error: %v", userID, err)
+		}
+	}
 }
 
 func (b *Bot) handleVoiceOut(c tele.Context) error {
@@ -1010,6 +1182,30 @@ func (b *Bot) handleMoodGraph(c tele.Context) error {
 	}
 
 	graph := buildMoodASCII(entries)
+
+	// Append trend analysis
+	if len(entries) >= 2 {
+		avg := 0.0
+		for _, e := range entries {
+			avg += float64(e.Score)
+		}
+		avg /= float64(len(entries))
+
+		best, worst := entries[0], entries[0]
+		for _, e := range entries {
+			if e.Score > best.Score {
+				best = e
+			}
+			if e.Score < worst.Score {
+				worst = e
+			}
+		}
+
+		days := []string{"Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"}
+		graph += fmt.Sprintf("\n\nСреднее: %.1f | Лучший: %s (%d) | Худший: %s (%d)",
+			avg, days[best.CreatedAt.Weekday()], best.Score, days[worst.CreatedAt.Weekday()], worst.Score)
+	}
+
 	return c.Send("```\n"+graph+"```", menu, tele.ModeMarkdown)
 }
 
@@ -1538,6 +1734,51 @@ func (b *Bot) habitDelete(c tele.Context, userID int64, payload string) error {
 	}
 
 	return c.Send(fmt.Sprintf("Удалено: %s. Одной проблемой меньше.", habit.Name), menu)
+}
+
+// --- Habit inline button callbacks ---
+
+func (b *Bot) handleHabitDoneCallback(c tele.Context, idx int) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] habit_done callback: %d", userID, idx)
+
+	today := time.Now().Format("2006-01-02")
+	habits, err := b.store.GetHabits(userID)
+	if err != nil || idx > len(habits) || idx < 1 {
+		return c.Respond(&tele.CallbackResponse{Text: "Привычка не найдена"})
+	}
+
+	habit := habits[idx-1]
+	already, _ := b.store.GetHabitLog(habit.ID, today)
+	if already {
+		return c.Respond(&tele.CallbackResponse{Text: "Уже отмечено!"})
+	}
+
+	if err := b.store.LogHabit(habit.ID, today); err != nil {
+		log.Printf("[%d] habit callback log error: %v", userID, err)
+		return c.Respond(&tele.CallbackResponse{Text: "Ошибка"})
+	}
+
+	streak, _ := b.store.GetHabitStreak(habit.ID)
+	streakStr := ""
+	if streak > 1 {
+		streakStr = fmt.Sprintf(" \U0001F525 Серия: %d", streak)
+	}
+
+	return c.Edit(fmt.Sprintf("\u2705 %s — готово!%s", habit.Name, streakStr))
+}
+
+func (b *Bot) handleHabitSkipCallback(c tele.Context, idx int) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] habit_skip callback: %d", userID, idx)
+
+	habits, err := b.store.GetHabits(userID)
+	if err != nil || idx > len(habits) || idx < 1 {
+		return c.Respond(&tele.CallbackResponse{Text: "Привычка не найдена"})
+	}
+
+	habit := habits[idx-1]
+	return c.Edit(fmt.Sprintf("\u274C %s — пропущено. Завтра не забудь.", habit.Name))
 }
 
 // --- Sleep Tracker ---

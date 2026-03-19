@@ -656,7 +656,7 @@ func (s *Scheduler) sendHabitReminders() {
 			continue
 		}
 
-		// Build reminder for each undone habit
+		// Build reminder for each undone habit with inline buttons
 		habits, _ := s.store.GetHabits(userID)
 		for _, uh := range undone {
 			// Find the index number for user-facing display
@@ -667,9 +667,15 @@ func (s *Scheduler) sendHabitReminders() {
 					break
 				}
 			}
-			msg := fmt.Sprintf("Эй, ты забыл: %s. Или решил забить? /habit done %d", uh.Name, idx)
+
+			inline := &tele.ReplyMarkup{}
+			btnDone := inline.Data("\u2705 Сделал", fmt.Sprintf("habit_done_%d", idx))
+			btnSkip := inline.Data("\u274C Нет", fmt.Sprintf("habit_skip_%d", idx))
+			inline.Inline(inline.Row(btnDone, btnSkip))
+
+			msg := fmt.Sprintf("Напоминание: %s", uh.Name)
 			recipient := &chatRecipient{id: userID}
-			if _, err := s.tg.Send(recipient, msg); err != nil {
+			if _, err := s.tg.Send(recipient, msg, inline); err != nil {
 				log.Printf("habit reminder send to %d: %v", userID, err)
 			}
 		}

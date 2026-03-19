@@ -206,6 +206,17 @@ func (b *Bot) registerHandlers() {
 		})
 	}
 
+	// Habit inline buttons (habit_done_N and habit_skip_N)
+	for i := 1; i <= 20; i++ {
+		idx := i
+		b.tg.Handle(&tele.InlineButton{Unique: fmt.Sprintf("habit_done_%d", i)}, func(c tele.Context) error {
+			return b.handleHabitDoneCallback(c, idx)
+		})
+		b.tg.Handle(&tele.InlineButton{Unique: fmt.Sprintf("habit_skip_%d", i)}, func(c tele.Context) error {
+			return b.handleHabitSkipCallback(c, idx)
+		})
+	}
+
 	// Social features
 	b.tg.Handle("/duel", b.handleDuel)
 	b.tg.Handle("/quest", b.handleQuest)

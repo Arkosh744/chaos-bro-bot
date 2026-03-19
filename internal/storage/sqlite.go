@@ -1808,6 +1808,32 @@ func (s *Storage) DeleteRuntimeConfig(key string) error {
 	return nil
 }
 
+// GetRecentAutoMoods returns the last N auto_mood scores for a user (newest first).
+// Auto mood scores are stored as "[auto_mood:N]" bot messages by the sentiment analyzer.
+func (s *Storage) GetRecentAutoMoods(userID int64, limit int) ([]int, error) {
+	rows, err := s.db.Query(`
+		SELECT CAST(SUBSTR(text, 12, LENGTH(text) - 12) AS INTEGER) AS score
+		FROM messages
+		WHERE user_id = ? AND role = 'bot' AND text LIKE '[auto_mood:%]'
+		ORDER BY id DESC LIMIT ?`,
+		userID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get recent auto moods: %w", err)
+	}
+	defer rows.Close()
+
+	var scores []int
+	for rows.Next() {
+		var score int
+		if err := rows.Scan(&score); err != nil {
+			return nil, fmt.Errorf("scan auto mood: %w", err)
+		}
+		scores = append(scores, score)
+	}
+	return scores, nil
+}
+
 // GetRuntimeConfigInt returns the integer value for a runtime config key.
 // Returns the provided defaultVal if the key is not found or cannot be parsed.
 func (s *Storage) GetRuntimeConfigInt(key string, defaultVal int) int {

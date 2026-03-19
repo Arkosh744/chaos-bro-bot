@@ -17,9 +17,14 @@ var thinkingPhrases = []string{
 	"🤔.....",
 }
 
-// startThinking sends a plain "thinking" message and animates dots.
+// startThinking sends a typing indicator, then a "thinking" message and animates dots.
 // Returns reply func that deletes the thinking message and sends the real answer.
 func (b *Bot) startThinking(c tele.Context) (reply func(text string, opts ...interface{}) error, stop func()) {
+	// Send typing action so user sees "typing..." immediately
+	if err := b.tg.Notify(c.Recipient(), tele.Typing); err != nil {
+		log.Printf("[%d] typing notify error: %v", c.Sender().ID, err)
+	}
+
 	// Send WITHOUT reply keyboard — otherwise Telegram blocks Edit
 	msg, err := b.tg.Send(c.Recipient(), "🤔.")
 	if err != nil {

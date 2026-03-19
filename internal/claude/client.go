@@ -136,7 +136,12 @@ var outputDangerousPatterns = []string{
 func SanitizeOutput(text string) string {
 	// Hard limit on output length (Telegram message limit ~4096)
 	if len(text) > 3500 {
-		text = text[:3500] + "..."
+		text = text[:3500]
+		// Find last space or newline to avoid cutting mid-word
+		if idx := strings.LastIndexAny(text, " \n"); idx > 3000 {
+			text = text[:idx]
+		}
+		text += "..."
 	}
 
 	// Check for leaked secrets or command output in response
