@@ -2,9 +2,11 @@ package bot
 
 import (
 	"context"
+	crand "crypto/rand"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"math/rand"
 	"os"
 	"regexp"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/features"
+	"github.com/Arkosh744/chaos-bro-bot/internal/integrations"
 	"github.com/Arkosh744/chaos-bro-bot/internal/metrics"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
 	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
@@ -1802,6 +1805,142 @@ func (b *Bot) handleHabitSkipCallback(c tele.Context, idx int) error {
 	return c.Edit(fmt.Sprintf(models.FmtHabitSkipCallback, habit.Name))
 }
 
+// --- Journal ---
+
+// journalAutoTags detects keywords in text and returns comma-separated tags.
+func journalAutoTags(text string) string {
+	lower := strings.ToLower(text)
+	tagMap := map[string][]string{
+		"work":  {"работ", "задач", "проект", "дедлайн", "митинг", "код", "баг", "релиз", "work"},
+		"sport": {"зал", "трен", "бег", "спорт", "йог", "фитнес", "sport", "gym"},
+		"mood":  {"настроен", "грустн", "радост", "тревог", "злост", "счастлив", "mood"},
+		"food":  {"еда", "ед", "завтрак", "обед", "ужин", "готов", "food"},
+		"sleep": {"сон", "спал", "спать", "бессонниц", "выспал", "sleep"},
+	}
+
+	var tags []string
+	seen := make(map[string]bool)
+	for tag, keywords := range tagMap {
+		for _, kw := range keywords {
+			if strings.Contains(lower, kw) && !seen[tag] {
+				tags = append(tags, tag)
+				seen[tag] = true
+				break
+			}
+		}
+	}
+	return strings.Join(tags, ",")
+}
+
+func (b *Bot) handleJournal(c tele.Context) error {
+	userID := c.Sender().ID
+	payload := c.Message().Payload
+	log.Printf("[%d] /journal: %s", userID, payload)
+
+	if !b.checkRateLimit(userID) {
+		return c.Send(models.MsgRateLimit, b.replyOpts(c))
+	}
+
+	// Subcommand: search
+	if strings.HasPrefix(payload, "search ") {
+		query := strings.TrimPrefix(payload, "search ")
+		query = strings.TrimSpace(query)
+		if query == "" {
+			return c.Send(models.MsgJournalFormat, b.replyOpts(c))
+		}
+		return b.journalSearch(c, userID, query)
+	}
+
+	// Subcommand: stats
+	if payload == "stats" {
+		return b.journalStats(c, userID)
+	}
+
+	// No args: show last 5 entries
+	if payload == "" {
+		return b.journalList(c, userID)
+	}
+
+	// Save new entry
+	tags := journalAutoTags(payload)
+	if err := b.store.SaveJournalEntry(userID, payload, tags); err != nil {
+		log.Printf("[%d] save journal error: %v", userID, err)
+		return c.Send(features.RandomFallback(), b.replyOpts(c))
+	}
+
+	return c.Send(models.MsgJournalSaved, b.replyOpts(c))
+}
+
+func (b *Bot) journalList(c tele.Context, userID int64) error {
+	entries, err := b.store.GetJournalEntries(userID, 5)
+	if err != nil {
+		log.Printf("[%d] get journal entries error: %v", userID, err)
+		return c.Send(features.RandomFallback(), b.replyOpts(c))
+	}
+	if len(entries) == 0 {
+		return c.Send(models.MsgJournalEmpty, b.replyOpts(c))
+	}
+
+	var sb strings.Builder
+	sb.WriteString(models.MsgJournalHeader)
+	for _, e := range entries {
+		date := e.CreatedAt.Format("02.01 15:04")
+		tags := e.Tags
+		if tags == "" {
+			tags = "-"
+		}
+		sb.WriteString(fmt.Sprintf(models.FmtJournalEntry, date, tags, e.Text))
+	}
+	return c.Send(sb.String(), b.replyOpts(c))
+}
+
+func (b *Bot) journalSearch(c tele.Context, userID int64, query string) error {
+	entries, err := b.store.SearchJournal(userID, query)
+	if err != nil {
+		log.Printf("[%d] search journal error: %v", userID, err)
+		return c.Send(features.RandomFallback(), b.replyOpts(c))
+	}
+	if len(entries) == 0 {
+		return c.Send(models.MsgJournalSearchEmpty, b.replyOpts(c))
+	}
+
+	var sb strings.Builder
+	sb.WriteString(models.MsgJournalHeader)
+	for _, e := range entries {
+		date := e.CreatedAt.Format("02.01 15:04")
+		tags := e.Tags
+		if tags == "" {
+			tags = "-"
+		}
+		sb.WriteString(fmt.Sprintf(models.FmtJournalEntry, date, tags, e.Text))
+	}
+	return c.Send(sb.String(), b.replyOpts(c))
+}
+
+func (b *Bot) journalStats(c tele.Context, userID int64) error {
+	total, topTags, err := b.store.GetJournalStats(userID)
+	if err != nil {
+		log.Printf("[%d] journal stats error: %v", userID, err)
+		return c.Send(features.RandomFallback(), b.replyOpts(c))
+	}
+	if total == 0 {
+		return c.Send(models.MsgJournalEmpty, b.replyOpts(c))
+	}
+
+	weekCount, err := b.store.GetJournalEntriesThisWeek(userID)
+	if err != nil {
+		log.Printf("[%d] journal week count error: %v", userID, err)
+		weekCount = 0
+	}
+
+	tagsStr := "-"
+	if len(topTags) > 0 {
+		tagsStr = strings.Join(topTags, ", ")
+	}
+
+	return c.Send(fmt.Sprintf(models.FmtJournalStats, total, weekCount, tagsStr), b.replyOpts(c))
+}
+
 // --- Sleep Tracker ---
 
 func (b *Bot) handleSleep(c tele.Context) error {
@@ -2218,3 +2357,329 @@ func (b *Bot) handleStoryCallback(c tele.Context, choice string) error {
 
 	return b.handleStoryContinue(c, choice)
 }
+
+func (b *Bot) handleWeather(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /weather", userID)
+
+	// Parse city from command args or fall back to profile
+	city := strings.TrimSpace(c.Message().Payload)
+	if city == "" {
+		// Try to get city from user profile
+		profileCity, err := b.store.GetFact(userID, "city")
+		if err != nil {
+			log.Printf("[%d] get city fact error: %v", userID, err)
+		}
+		city = profileCity
+	}
+
+	if city == "" {
+		return c.Send(models.MsgWeatherNoCity, b.replyOpts(c))
+	}
+
+	weather, err := integrations.GetWeather(city)
+	if err != nil {
+		log.Printf("[%d] weather error: %v", userID, err)
+		return c.Send(models.MsgWeatherError, b.replyOpts(c))
+	}
+
+	msg := fmt.Sprintf(models.FmtWeather, city, weather)
+	return c.Send(msg, b.replyOpts(c))
+}
+
+func (b *Bot) handleRates(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /rates", userID)
+
+	rates, err := integrations.GetRates()
+	if err != nil {
+		log.Printf("[%d] rates error: %v", userID, err)
+		return c.Send(models.MsgRatesError, b.replyOpts(c))
+	}
+
+	// Generate a trickster comment about money
+	comment, cErr := b.claude.Ask(context.Background(),
+		"Ты трикстер. Скажи одно короткое ироничное предложение про деньги/курсы. На русском. Без контекста, просто фразу.",
+		"Комментарий к курсам валют")
+	if cErr != nil {
+		log.Printf("[%d] rates comment error: %v", userID, cErr)
+		comment = ""
+	}
+
+	msg := models.MsgRatesHeader + rates
+	if comment != "" {
+		msg += "\n\n" + comment
+	}
+
+	return c.Send(msg, b.replyOpts(c))
+}
+
+// --- Notes ---
+
+func (b *Bot) handleNote(c tele.Context) error {
+	userID := c.Sender().ID
+	payload := c.Message().Payload
+	log.Printf("[%d] /note: %s", userID, payload)
+
+	if payload == "" {
+		return c.Send(models.MsgNoteFormat, menu)
+	}
+
+	// /note clear — delete all notes
+	if payload == "clear" {
+		if err := b.store.DeleteAllNotes(userID); err != nil {
+			log.Printf("[%d] delete all notes error: %v", userID, err)
+			return c.Send(features.RandomFallback(), menu)
+		}
+		return c.Send(models.MsgNoteAllDeleted, menu)
+	}
+
+	// /note delete N — delete note by number
+	if strings.HasPrefix(payload, "delete ") {
+		numStr := strings.TrimPrefix(payload, "delete ")
+		num, err := strconv.Atoi(strings.TrimSpace(numStr))
+		if err != nil || num < 1 {
+			return c.Send(models.MsgNoteFormat, menu)
+		}
+
+		notes, err := b.store.GetNotes(userID)
+		if err != nil || num > len(notes) {
+			return c.Send(models.MsgNoteNotFound, menu)
+		}
+
+		note := notes[num-1]
+		if err := b.store.DeleteNote(note.ID, userID); err != nil {
+			log.Printf("[%d] delete note error: %v", userID, err)
+			return c.Send(models.MsgNoteNotFound, menu)
+		}
+		return c.Send(models.MsgNoteDeleted, menu)
+	}
+
+	// /note текст — save a new note
+	if err := b.store.SaveNote(userID, payload); err != nil {
+		log.Printf("[%d] save note error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+	return c.Send(models.MsgNoteSaved, menu)
+}
+
+func (b *Bot) handleNotes(c tele.Context) error {
+	userID := c.Sender().ID
+	log.Printf("[%d] /notes", userID)
+
+	notes, err := b.store.GetNotes(userID)
+	if err != nil {
+		log.Printf("[%d] get notes error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	if len(notes) == 0 {
+		return c.Send(models.MsgNoteEmpty, menu)
+	}
+
+	var sb strings.Builder
+	sb.WriteString(models.MsgNotesHeader)
+	for i, n := range notes {
+		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, n.Text))
+	}
+	return c.Send(sb.String(), menu)
+}
+
+// --- Pomodoro ---
+
+func (b *Bot) handlePomodoro(c tele.Context) error {
+	userID := c.Sender().ID
+	payload := c.Message().Payload
+	log.Printf("[%d] /pomo: %s", userID, payload)
+
+	// /pomo stop — cancel active timer
+	if payload == "stop" {
+		active, _ := b.store.GetCounter(userID, "pomo_active")
+		if active == 0 || time.Now().Unix() > int64(active) {
+			return c.Send(models.MsgPomoNoActive, menu)
+		}
+		if err := b.store.SetCounter(userID, "pomo_active", 0); err != nil {
+			log.Printf("[%d] reset pomo error: %v", userID, err)
+		}
+		return c.Send(models.MsgPomoStopped, menu)
+	}
+
+	// Check if already active
+	active, _ := b.store.GetCounter(userID, "pomo_active")
+	if active > 0 && time.Now().Unix() < int64(active) {
+		return c.Send(models.MsgPomoActive, menu)
+	}
+
+	// Parse duration: default 25, or custom N
+	duration := 25
+	if payload != "" {
+		d, err := strconv.Atoi(strings.TrimSpace(payload))
+		if err != nil || d < 5 || d > 120 {
+			return c.Send(models.MsgPomoRange, menu)
+		}
+		duration = d
+	}
+
+	// Store end time as unix timestamp (work + break = duration + 5 min)
+	endTime := time.Now().Add(time.Duration(duration+5) * time.Minute)
+	if err := b.store.SetCounter(userID, "pomo_active", int(endTime.Unix())); err != nil {
+		log.Printf("[%d] set pomo_active error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	// Send start message
+	if err := c.Send(fmt.Sprintf(models.FmtPomoStart, duration), menu); err != nil {
+		return err
+	}
+
+	// Launch timer goroutine
+	go b.runPomodoro(userID, duration)
+
+	return nil
+}
+
+func (b *Bot) runPomodoro(userID int64, duration int) {
+	recipient := &tele.User{ID: userID}
+
+	// Wait for work period
+	time.Sleep(time.Duration(duration) * time.Minute)
+
+	// Check if still active (user may have cancelled)
+	active, _ := b.store.GetCounter(userID, "pomo_active")
+	if active == 0 {
+		return
+	}
+
+	// Send break notification
+	if _, err := b.tg.Send(recipient, models.MsgPomoBreak); err != nil {
+		log.Printf("[%d] pomo break send error: %v", userID, err)
+		return
+	}
+
+	// Wait for break period (5 min)
+	time.Sleep(5 * time.Minute)
+
+	// Clear active flag
+	if err := b.store.SetCounter(userID, "pomo_active", 0); err != nil {
+		log.Printf("[%d] reset pomo_active error: %v", userID, err)
+	}
+
+	// Send end notification
+	if _, err := b.tg.Send(recipient, models.MsgPomoEnd); err != nil {
+		log.Printf("[%d] pomo end send error: %v", userID, err)
+	}
+}
+
+// --- Password Generator ---
+
+func (b *Bot) handlePassword(c tele.Context) error {
+	userID := c.Sender().ID
+	payload := c.Message().Payload
+	log.Printf("[%d] /pass: %s", userID, payload)
+
+	length := 16
+	if payload != "" {
+		n, err := strconv.Atoi(strings.TrimSpace(payload))
+		if err == nil && n >= 4 && n <= 128 {
+			length = n
+		}
+	}
+
+	pass, err := generatePassword(length)
+	if err != nil {
+		log.Printf("[%d] generate password error: %v", userID, err)
+		return c.Send(features.RandomFallback(), menu)
+	}
+
+	return c.Send(fmt.Sprintf(models.FmtPassResult, pass), menu, tele.ModeMarkdown)
+}
+
+// generatePassword creates a random password using crypto/rand.
+func generatePassword(length int) (string, error) {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+"
+	result := make([]byte, length)
+	for i := range result {
+		idx, err := cryptoRandInt(len(charset))
+		if err != nil {
+			return "", fmt.Errorf("crypto rand: %w", err)
+		}
+		result[i] = charset[idx]
+	}
+	return string(result), nil
+}
+
+// cryptoRandInt returns a cryptographically random int in [0, max).
+func cryptoRandInt(max int) (int, error) {
+	n, err := crand.Int(crand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		return 0, err
+	}
+	return int(n.Int64()), nil
+}
+
+// --- Calculator ---
+
+func (b *Bot) handleCalc(c tele.Context) error {
+	userID := c.Sender().ID
+	payload := c.Message().Payload
+	log.Printf("[%d] /calc: %s", userID, payload)
+
+	if payload == "" {
+		return c.Send(models.MsgCalcFormat, menu)
+	}
+
+	result, err := calcExpression(payload)
+	if err != nil {
+		return c.Send(models.MsgCalcError, menu)
+	}
+
+	// Format result: remove trailing zeros for float
+	var resultStr string
+	if result == float64(int64(result)) {
+		resultStr = strconv.FormatInt(int64(result), 10)
+	} else {
+		resultStr = strconv.FormatFloat(result, 'f', -1, 64)
+	}
+
+	return c.Send(resultStr, menu)
+}
+
+// calcExpression parses and evaluates "number operator number" expressions.
+func calcExpression(expr string) (float64, error) {
+	expr = strings.TrimSpace(expr)
+
+	parts := calcRe.FindStringSubmatch(expr)
+	if parts == nil {
+		return 0, fmt.Errorf("invalid expression")
+	}
+
+	a, err := strconv.ParseFloat(parts[1], 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse first number: %w", err)
+	}
+
+	op := parts[2]
+
+	bVal, err := strconv.ParseFloat(parts[3], 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse second number: %w", err)
+	}
+
+	switch op {
+	case "+":
+		return a + bVal, nil
+	case "-":
+		return a - bVal, nil
+	case "*":
+		return a * bVal, nil
+	case "/":
+		if bVal == 0 {
+			return 0, fmt.Errorf("division by zero")
+		}
+		return a / bVal, nil
+	default:
+		return 0, fmt.Errorf("unknown operator: %s", op)
+	}
+}
+
+var calcRe = regexp.MustCompile(`^(-?\d+(?:\.\d+)?)\s*([+\-*/])\s*(-?\d+(?:\.\d+)?)$`)

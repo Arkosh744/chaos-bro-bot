@@ -111,6 +111,8 @@ const MsgHelp = `🎭 *Команды Трикстера:*
 /anon текст — анонимное сообщение (группы)
 /story — интерактивная история
 /game — мини-игры (угадайка, тривиа, данетки)
+/weather — погода (или /weather Москва)
+/rates — курсы валют
 /voice текст — озвучить текст голосом
 /help — эта справка
 
@@ -452,6 +454,11 @@ const (
 	FmtLinkedDiffMood     = "У тебя %d/10, а у %s — %d/10. Может стоит списаться?"
 	FmtNightOwlWarning    = "Ты опять не спишь в %s. Третий раз за неделю. Ложись."
 	MsgDigestPrefix       = "📋 Дайджест недели:\n\n"
+
+	// Proactive messages
+	FmtStreakWarning  = "🔥 Эй. Через пару часов сгорит твой стрик в %d дней. Мне всё равно. Но тебе — нет."
+	FmtMilestone      = "Кстати, ты написал мне %d сообщений. Я помню твоё первое — ты тогда написал /start."
+	FmtWeekendSummary = "📊 Неделя в цифрах: %d сообщений. %s"
 )
 
 // --- Group interject ---
@@ -470,6 +477,40 @@ const SOSMessage = "🆘 Стоп. Я вижу что тебе хреново.\n
 	"3. *Вода*: выпей стакан воды прямо сейчас\n\n" +
 	"Если совсем плохо — позвони на горячую линию: *8-800-2000-122* (бесплатно, 24/7)\n\n" +
 	"Я рядом. Напиши когда отпустит."
+
+// --- Weather ---
+
+const (
+	MsgWeatherNoCity = "Не знаю твой город. Напиши /weather Москва или добавь город в профиль."
+	FmtWeather       = "\U0001F324 %s: %s"
+	MsgWeatherError  = "Погоду не достал. Видимо, облака загородили API."
+)
+
+// --- Rates ---
+
+const (
+	MsgRatesError  = "Курсы не загрузились. Рынки, наверное, тоже в шоке."
+	MsgRatesHeader = "\U0001F4B1 Курсы:\n"
+)
+
+// --- Morning briefing ---
+
+const MorningBriefingPrompt = `Ты — трикстер, который будит друга утром. Создай утренний пакет.
+
+Профиль пользователя:
+%s
+
+Погода: %s
+Курсы: %s
+Факт дня: %s
+
+Включи в ответ:
+1. Приветствие по имени (если известно) — 1 предложение
+2. Микро-задание на день (необычное, 1 предложение)
+3. Абсурдная мотивашка (1 предложение)
+
+НЕ включай погоду, курсы и факт дня в свой ответ — они уже будут показаны отдельно.
+Всё на русском. Коротко. Дерзко.`
 
 // --- Weekday names ---
 
@@ -520,6 +561,18 @@ var TricksterNames = []string{
 	"Данте с Районной", "Кратос Уставший", "Довакин Ленивый",
 }
 
+// --- Journal ---
+
+const (
+	MsgJournalSaved       = "📝 Записал. Мозг свободнее на одну мысль."
+	MsgJournalEmpty       = "Журнал пуст. Напиши /journal мысль чтобы начать."
+	MsgJournalFormat      = "Формат: /journal текст мысли"
+	MsgJournalSearchEmpty = "Ничего не нашёл по этому запросу."
+	MsgJournalHeader      = "📓 Последние записи:\n\n"
+	FmtJournalEntry       = "📌 %s [%s]\n%s\n\n"
+	FmtJournalStats       = "📓 Журнал:\n\nВсего записей: %d\nЗа эту неделю: %d\nТоп теги: %s"
+)
+
 // --- Category labels ---
 
 var CategoryLabels = map[string]string{
@@ -537,3 +590,35 @@ var CategoryLabels = map[string]string{
 	"goals":         "🎯 Цели",
 	"quirks":        "🤪 Странности",
 }
+
+// --- Notes ---
+
+const (
+	MsgNoteSaved      = "\U0001F4CC Записал."
+	MsgNoteEmpty      = "Заметок нет. Напиши /note текст."
+	MsgNoteFormat     = "Формат: /note текст заметки"
+	MsgNoteDeleted    = "Удалено."
+	MsgNoteAllDeleted = "Все заметки удалены."
+	MsgNoteNotFound   = "Заметка не найдена."
+	MsgNotesHeader    = "\U0001F4CB Заметки:\n\n"
+)
+
+// --- Pomodoro ---
+
+const (
+	FmtPomoStart  = "\U0001F345 Помодоро запущен. %d минут работы. Я напомню."
+	MsgPomoBreak  = "\U0001F345 Время! 5 минут перерыв. Встань, потянись."
+	MsgPomoEnd    = "\U0001F345 Перерыв окончен. Готов к следующему раунду? /pomo"
+	MsgPomoActive = "\U0001F345 Помодоро уже запущен."
+	MsgPomoStopped  = "\U0001F345 Помодоро отменён."
+	MsgPomoNoActive = "Нет активного помодоро."
+	MsgPomoRange    = "От 5 до 120 минут."
+)
+
+// --- Utility ---
+
+const (
+	FmtPassResult  = "\U0001F510 `%s`"
+	MsgCalcFormat  = "Формат: /calc 100 * 1.5"
+	MsgCalcError   = "Не могу посчитать. Формат: /calc число оператор число"
+)

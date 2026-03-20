@@ -174,6 +174,8 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle("/future", b.handleFuture)
 	b.tg.Handle("/anon", b.handleAnon)
 	b.tg.Handle("/habit", b.handleHabit)
+	b.tg.Handle("/journal", b.handleJournal)
+	b.tg.Handle("/j", b.handleJournal)
 	b.tg.Handle("/sleep", b.handleSleep)
 	b.tg.Handle("/meditate", b.handleMeditate)
 	b.tg.Handle("/top", b.handleTop)
@@ -246,6 +248,22 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle("/unlink", b.handleUnlink)
 
 	b.tg.Handle("/voice", b.handleVoiceOut)
+
+	// External integrations
+	b.tg.Handle("/weather", b.handleWeather)
+	b.tg.Handle("/rates", b.handleRates)
+
+	// Notes
+	b.tg.Handle("/note", b.handleNote)
+	b.tg.Handle("/notes", b.handleNotes)
+
+	// Pomodoro
+	b.tg.Handle("/pomodoro", b.handlePomodoro)
+	b.tg.Handle("/pomo", b.handlePomodoro)
+
+	// Utility
+	b.tg.Handle("/pass", b.handlePassword)
+	b.tg.Handle("/calc", b.handleCalc)
 
 	b.tg.Handle(tele.OnPhoto, b.handlePhoto)
 	b.tg.Handle(tele.OnText, b.handleText)

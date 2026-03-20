@@ -174,6 +174,34 @@ var migrations = []func(tx *sql.Tx) error{
 		`)
 		return err
 	},
+	// v3: journal table for personal journal entries
+	func(tx *sql.Tx) error {
+		_, err := tx.Exec(`
+			CREATE TABLE IF NOT EXISTS journal (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				user_id INTEGER NOT NULL,
+				text TEXT NOT NULL,
+				tags TEXT NOT NULL DEFAULT '',
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE INDEX IF NOT EXISTS idx_journal_user ON journal(user_id, created_at DESC);
+			CREATE INDEX IF NOT EXISTS idx_journal_tags ON journal(user_id, tags);
+		`)
+		return err
+	},
+	// v4: notes table for quick notes
+	func(tx *sql.Tx) error {
+		_, err := tx.Exec(`
+			CREATE TABLE IF NOT EXISTS notes (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				user_id INTEGER NOT NULL,
+				text TEXT NOT NULL,
+				created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			);
+			CREATE INDEX IF NOT EXISTS idx_notes_user ON notes(user_id, created_at DESC);
+		`)
+		return err
+	},
 }
 
 type Message struct {
@@ -181,6 +209,14 @@ type Message struct {
 	UserID    int64
 	Role      string // "user" or "bot"
 	Text      string
+	CreatedAt time.Time
+}
+
+type JournalEntry struct {
+	ID        int64
+	UserID    int64
+	Text      string
+	Tags      string
 	CreatedAt time.Time
 }
 
@@ -1896,4 +1932,234 @@ func (s *Storage) GetRuntimeConfigInt(key string, defaultVal int) int {
 		return defaultVal
 	}
 	return result
+}
+
+// --- Journal ---
+
+// SaveJournalEntry inserts a new journal entry for the given user.
+func (s *Storage) SaveJournalEntry(userID int64, text, tags string) error {
+	_, err := s.db.Exec(
+		"INSERT INTO journal (user_id, text, tags) VALUES (?, ?, ?)",
+		userID, text, tags,
+	)
+	if err != nil {
+		return fmt.Errorf("save journal entry: %w", err)
+	}
+	return nil
+}
+
+// GetJournalEntries returns the latest journal entries for the given user.
+func (s *Storage) GetJournalEntries(userID int64, limit int) ([]JournalEntry, error) {
+	rows, err := s.db.Query(
+		"SELECT id, user_id, text, tags, created_at FROM journal WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+		userID, limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get journal entries: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []JournalEntry
+	for rows.Next() {
+		var e JournalEntry
+		if err := rows.Scan(&e.ID, &e.UserID, &e.Text, &e.Tags, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan journal entry: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
+
+// SearchJournal finds journal entries matching the query in text or tags via LIKE.
+func (s *Storage) SearchJournal(userID int64, query string) ([]JournalEntry, error) {
+	pattern := "%" + query + "%"
+	rows, err := s.db.Query(
+		"SELECT id, user_id, text, tags, created_at FROM journal WHERE user_id = ? AND (text LIKE ? OR tags LIKE ?) ORDER BY created_at DESC LIMIT 10",
+		userID, pattern, pattern,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("search journal: %w", err)
+	}
+	defer rows.Close()
+
+	var entries []JournalEntry
+	for rows.Next() {
+		var e JournalEntry
+		if err := rows.Scan(&e.ID, &e.UserID, &e.Text, &e.Tags, &e.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan journal search result: %w", err)
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
+
+// GetJournalStats returns total entry count and most used tags for the given user.
+func (s *Storage) GetJournalStats(userID int64) (totalEntries int, topTags []string, err error) {
+	err = s.db.QueryRow(
+		"SELECT COUNT(*) FROM journal WHERE user_id = ?",
+		userID,
+	).Scan(&totalEntries)
+	if err != nil {
+		return 0, nil, fmt.Errorf("count journal entries: %w", err)
+	}
+
+	rows, err := s.db.Query(
+		"SELECT tags FROM journal WHERE user_id = ? AND tags != ''",
+		userID,
+	)
+	if err != nil {
+		return totalEntries, nil, fmt.Errorf("get journal tags: %w", err)
+	}
+	defer rows.Close()
+
+	tagCount := make(map[string]int)
+	for rows.Next() {
+		var tags string
+		if err := rows.Scan(&tags); err != nil {
+			continue
+		}
+		for _, tag := range strings.Split(tags, ",") {
+			tag = strings.TrimSpace(tag)
+			if tag != "" {
+				tagCount[tag]++
+			}
+		}
+	}
+
+	// Sort tags by frequency, take top 5
+	type tagFreq struct {
+		tag   string
+		count int
+	}
+	var sorted []tagFreq
+	for tag, count := range tagCount {
+		sorted = append(sorted, tagFreq{tag, count})
+	}
+	for i := 0; i < len(sorted); i++ {
+		for j := i + 1; j < len(sorted); j++ {
+			if sorted[j].count > sorted[i].count {
+				sorted[i], sorted[j] = sorted[j], sorted[i]
+			}
+		}
+	}
+	for i, tf := range sorted {
+		if i >= 5 {
+			break
+		}
+		topTags = append(topTags, tf.tag)
+	}
+
+	return totalEntries, topTags, nil
+}
+
+// GetJournalEntriesThisWeek returns the number of journal entries created in the current week.
+func (s *Storage) GetJournalEntriesThisWeek(userID int64) (int, error) {
+	now := time.Now()
+	weekday := int(now.Weekday())
+	if weekday == 0 {
+		weekday = 7
+	}
+	weekStart := now.AddDate(0, 0, -(weekday - 1))
+	weekStartStr := weekStart.Format("2006-01-02")
+
+	var count int
+	err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM journal WHERE user_id = ? AND DATE(created_at) >= ?",
+		userID, weekStartStr,
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count journal entries this week: %w", err)
+	}
+	return count, nil
+}
+
+// --- Notes ---
+
+// Note represents a quick note saved by a user.
+type Note struct {
+	ID        int64
+	UserID    int64
+	Text      string
+	CreatedAt time.Time
+}
+
+// SaveNote saves a quick note for the user.
+func (s *Storage) SaveNote(userID int64, text string) error {
+	_, err := s.db.Exec(
+		"INSERT INTO notes (user_id, text) VALUES (?, ?)",
+		userID, text,
+	)
+	if err != nil {
+		return fmt.Errorf("save note: %w", err)
+	}
+	return nil
+}
+
+// GetNotes returns all notes for a user, latest first.
+func (s *Storage) GetNotes(userID int64) ([]Note, error) {
+	rows, err := s.db.Query(
+		"SELECT id, user_id, text, created_at FROM notes WHERE user_id = ? ORDER BY created_at DESC",
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get notes: %w", err)
+	}
+	defer rows.Close()
+
+	var notes []Note
+	for rows.Next() {
+		var n Note
+		if err := rows.Scan(&n.ID, &n.UserID, &n.Text, &n.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan note: %w", err)
+		}
+		notes = append(notes, n)
+	}
+	return notes, nil
+}
+
+// DeleteNote deletes a note by ID, verifying ownership.
+func (s *Storage) DeleteNote(noteID int64, userID int64) error {
+	res, err := s.db.Exec(
+		"DELETE FROM notes WHERE id = ? AND user_id = ?",
+		noteID, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("delete note: %w", err)
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		return fmt.Errorf("note not found")
+	}
+	return nil
+}
+
+// DeleteAllNotes deletes all notes for a user.
+func (s *Storage) DeleteAllNotes(userID int64) error {
+	_, err := s.db.Exec("DELETE FROM notes WHERE user_id = ?", userID)
+	if err != nil {
+		return fmt.Errorf("delete all notes: %w", err)
+	}
+	return nil
+}
+
+// --- Proactive message helpers ---
+
+// GetUserMessageCountTodayByRole returns message count for a user today filtered by role.
+func (s *Storage) GetUserMessageCountTodayByRole(userID int64, role string) (int, error) {
+	var count int
+	err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM messages WHERE user_id = ? AND role = ? AND created_at >= date('now', 'start of day')",
+		userID, role,
+	).Scan(&count)
+	return count, err
+}
+
+// GetUserMessageCountSinceDateByRole returns message count for a user since a given time, filtered by role.
+func (s *Storage) GetUserMessageCountSinceDateByRole(userID int64, since time.Time, role string) (int, error) {
+	var count int
+	err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM messages WHERE user_id = ? AND role = ? AND created_at >= ?",
+		userID, role, since,
+	).Scan(&count)
+	return count, err
 }
