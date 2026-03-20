@@ -1,7 +1,26 @@
+# Binary
 /bot
+bin/
 *.exe
+
+# Data
 *.db
+data/
+
+# Config with secrets
 .env
 config.local.yaml
+
+# Docs (auto-generated)
 docs/plans/
 docs/SESSION_*.md
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test artifacts
+*.out
+coverage.out

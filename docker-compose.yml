@@ -1,17 +1,26 @@
-version: '3.8'
-
 services:
   bot:
     build: .
     container_name: trickster-bot
     restart: unless-stopped
     ports:
-      - "${WEB_PORT:-11112}:11112"
+      - "127.0.0.1:${WEB_PORT:-11112}:11112"
     volumes:
       - ./data:/app/data
       - ./config.local.yaml:/app/config.local.yaml:ro
+      # Mount claude CLI binary and auth from host (read-only)
+      - ${CLAUDE_BIN:-/usr/local/bin/claude}:/usr/local/bin/claude:ro
+      - ${HOME}/.claude:/home/botuser/.claude:ro
     environment:
       - TZ=Europe/Moscow
+    # Drop all capabilities, no privilege escalation
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:11112/"]
       interval: 30s
