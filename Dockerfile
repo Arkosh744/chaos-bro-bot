@@ -6,9 +6,9 @@ COPY . .
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /bot ./cmd/bot/
 
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata python3 && \
-    python3 -m ensurepip && \
+RUN apk add --no-cache ca-certificates tzdata py3-pip && \
     pip3 install --break-system-packages edge-tts && \
+    apk del py3-pip && \
     rm -rf /root/.cache
 WORKDIR /app
 COPY --from=builder /bot .

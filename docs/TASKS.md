@@ -41,3 +41,6 @@
 - [x] [100%] UX Improvements x10: mood drop detection, achievement progress, daily reward, habit inline buttons, mood trend, contextual suggestions, prediction context, /start returning users, typing indicator, SanitizeOutput mid-word fix (2026-03-19)
 - [x] [100%] UX Improvements x8: inline repeat buttons, roast from history, digest highlights, duel categories, group /top, sleep recommendations, profile editing, response cache (2026-03-19)
 - [x] [100%] Security Hardening x20: SEC-001..021 — command injection, auth, prompt injection, rate limits, Docker, logging, cache, voice limits (2026-03-20)
+- [x] [100%] External Integrations: weather (wttr.in), currency rates (exchangerate-api + coingecko), day facts (Claude), morning briefing, /weather and /rates handlers (2026-03-21)
+- [x] [100%] Quick Notes + Utility Commands: /note, /notes, /pomo, /pass, /calc — migration v4 + storage + handlers + registration (2026-03-21)
+- [x] [100%] Proactive Bot Messages: streak warning, milestone detection, weekend summary, smart evening reflection — scheduler proactiveLoop + storage helpers + constants (2026-03-21)
