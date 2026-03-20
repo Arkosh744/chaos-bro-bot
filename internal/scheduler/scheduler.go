@@ -201,10 +201,6 @@ func (s *Scheduler) generateQuotePing() string {
 	return "🎮 " + quote
 }
 
-func (s *Scheduler) generateTricksterPing() string {
-	return s.generateTricksterPingFor(s.cfg.OwnerID)
-}
-
 func (s *Scheduler) generateTricksterPingFor(userID int64) string {
 	// Build context from storage
 	var userCtx string

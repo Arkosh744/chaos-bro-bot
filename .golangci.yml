@@ -1,0 +1,34 @@
+linters:
+  enable:
+    - errcheck
+    - gosimple
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+linters-settings:
+  errcheck:
+    check-type-assertions: false
+    check-blank: false
+    exclude-functions:
+      # Fire-and-forget storage operations in bot handlers
+      - (*github.com/Arkosh744/chaos-bro-bot/internal/storage.Storage).SetCounter
+      - (*github.com/Arkosh744/chaos-bro-bot/internal/storage.Storage).DeleteFact
+      - (*github.com/Arkosh744/chaos-bro-bot/internal/storage.Storage).SaveFact
+      - (*github.com/Arkosh744/chaos-bro-bot/internal/storage.Storage).SaveLie
+      - (*github.com/Arkosh744/chaos-bro-bot/internal/storage.Storage).IncrementCounter
+      - (*github.com/Arkosh744/chaos-bro-bot/internal/storage.Storage).CompleteDuel
+      - (*github.com/Arkosh744/chaos-bro-bot/internal/storage.Storage).SaveMessage
+      # Telegram send in goroutines
+      - (*gopkg.in/telebot.v4.Bot).Send
+      # OS operations in tests
+      - os.Chdir
+
+issues:
+  exclude-dirs:
+    - docs
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
