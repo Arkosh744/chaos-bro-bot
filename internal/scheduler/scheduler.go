@@ -13,6 +13,7 @@ import (
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/claude"
 	"github.com/Arkosh744/chaos-bro-bot/internal/features"
+	"github.com/Arkosh744/chaos-bro-bot/internal/integrations"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
 	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 	tele "gopkg.in/telebot.v4"
@@ -282,53 +283,9 @@ func (s *Scheduler) sendMorningCheck() {
 		return
 	}
 
-	// Message 1: Mood check with inline buttons
-	inline := &tele.ReplyMarkup{}
-	rows := []tele.Row{
-		inline.Row(
-			inline.Data("1", "mood_1"), inline.Data("2", "mood_2"),
-			inline.Data("3", "mood_3"), inline.Data("4", "mood_4"),
-			inline.Data("5", "mood_5"),
-		),
-		inline.Row(
-			inline.Data("6", "mood_6"), inline.Data("7", "mood_7"),
-			inline.Data("8", "mood_8"), inline.Data("9", "mood_9"),
-			inline.Data("10", "mood_10"),
-		),
-	}
-	inline.Inline(rows...)
+	s.sendMorningBriefing(s.cfg.OwnerID)
 
 	recipient := &chatRecipient{id: s.cfg.OwnerID}
-	if _, err := s.tg.Send(recipient, models.MsgMoodMorning, inline); err != nil {
-		log.Printf("morning check send: %v", err)
-	}
-
-	// Message 2: Morning ritual package (after 5s delay)
-	time.Sleep(5 * time.Second)
-
-	var profileCtx string
-	if s.store != nil {
-		profile, err := s.store.GetFactsAsText(s.cfg.OwnerID)
-		if err != nil {
-			log.Printf("[%d] morning ritual get profile: %v", s.cfg.OwnerID, err)
-		}
-		if profile != "" {
-			profileCtx = profile
-		}
-	}
-	if profileCtx == "" {
-		profileCtx = models.MsgProfileNotFilled
-	}
-
-	prompt := fmt.Sprintf(features.MorningRitualPrompt, profileCtx)
-	ritual, err := s.claude.Ask(context.Background(), prompt, "Утренний пакет")
-	if err != nil {
-		log.Printf("[%d] morning ritual generate: %v", s.cfg.OwnerID, err)
-	} else if ritual != "" {
-		if _, err := s.tg.Send(recipient, ritual); err != nil {
-			log.Printf("[%d] morning ritual send: %v", s.cfg.OwnerID, err)
-		}
-	}
 
 	// Weekly challenge: generate on Monday, remind on other days
 	now := time.Now()
@@ -387,6 +344,130 @@ func (s *Scheduler) sendMorningCheck() {
 
 	// Linked users mood comparison
 	s.checkLinkedUsersMood()
+}
+
+// sendMorningBriefing sends a combined morning message: mood buttons, weather, rates,
+// day fact, and a Claude-generated greeting with daily quest and motivation.
+func (s *Scheduler) sendMorningBriefing(userID int64) {
+	recipient := &chatRecipient{id: userID}
+
+	// Step 1: Mood check with inline buttons
+	inline := &tele.ReplyMarkup{}
+	rows := []tele.Row{
+		inline.Row(
+			inline.Data("1", "mood_1"), inline.Data("2", "mood_2"),
+			inline.Data("3", "mood_3"), inline.Data("4", "mood_4"),
+			inline.Data("5", "mood_5"),
+		),
+		inline.Row(
+			inline.Data("6", "mood_6"), inline.Data("7", "mood_7"),
+			inline.Data("8", "mood_8"), inline.Data("9", "mood_9"),
+			inline.Data("10", "mood_10"),
+		),
+	}
+	inline.Inline(rows...)
+
+	// Step 2: Gather external data concurrently
+	var profileCtx string
+	var weatherLine string
+	var ratesLine string
+	var factLine string
+	var city string
+
+	if s.store != nil {
+		profile, err := s.store.GetFactsAsText(userID)
+		if err != nil {
+			log.Printf("[%d] morning briefing get profile: %v", userID, err)
+		}
+		if profile != "" {
+			profileCtx = profile
+		}
+
+		cityFact, err := s.store.GetFact(userID, "city")
+		if err != nil {
+			log.Printf("[%d] morning briefing get city: %v", userID, err)
+		}
+		city = cityFact
+	}
+	if profileCtx == "" {
+		profileCtx = models.MsgProfileNotFilled
+	}
+
+	// Fetch weather if city is known
+	if city != "" {
+		weather, err := integrations.GetWeather(city)
+		if err != nil {
+			log.Printf("[%d] morning briefing weather error: %v", userID, err)
+		} else {
+			weatherLine = fmt.Sprintf(models.FmtWeather, city, weather)
+		}
+	}
+
+	// Fetch currency rates
+	rates, err := integrations.GetRates()
+	if err != nil {
+		log.Printf("[%d] morning briefing rates error: %v", userID, err)
+	} else {
+		ratesLine = models.MsgRatesHeader + rates
+	}
+
+	// Fetch day fact via Claude
+	fact, err := integrations.GetDayFact(s.claude, time.Now())
+	if err != nil {
+		log.Printf("[%d] morning briefing day fact error: %v", userID, err)
+	} else {
+		factLine = fact
+	}
+
+	// Step 3: Generate briefing via Claude with all context
+	weatherCtx := weatherLine
+	if weatherCtx == "" {
+		weatherCtx = "нет данных"
+	}
+	ratesCtx := rates
+	if ratesCtx == "" {
+		ratesCtx = "нет данных"
+	}
+	factCtx := factLine
+	if factCtx == "" {
+		factCtx = "нет данных"
+	}
+
+	prompt := fmt.Sprintf(models.MorningBriefingPrompt, profileCtx, weatherCtx, ratesCtx, factCtx)
+	briefing, err := s.claude.Ask(context.Background(), prompt, "Утренний брифинг")
+	if err != nil {
+		log.Printf("[%d] morning briefing generate: %v", userID, err)
+	}
+
+	// Step 4: Build and send the combined message
+	var msg string
+	if briefing != "" {
+		msg = briefing
+	}
+
+	// Append weather line
+	if weatherLine != "" {
+		msg += "\n\n" + weatherLine
+	}
+
+	// Append compact rates
+	if ratesLine != "" {
+		msg += "\n" + ratesLine
+	}
+
+	// Append day fact
+	if factLine != "" {
+		msg += "\n\n" + factLine
+	}
+
+	// Append mood question at the end
+	msg += "\n\nКак настроение? От 1 до 10:"
+
+	if msg != "" {
+		if _, err := s.tg.Send(recipient, msg, inline); err != nil {
+			log.Printf("[%d] morning briefing send: %v", userID, err)
+		}
+	}
 }
 
 // checkLinkedUsersMood compares mood scores of linked users and notifies them.
@@ -487,6 +568,35 @@ func (s *Scheduler) eveningCheckLoop() {
 func (s *Scheduler) sendEveningCheck() {
 	if s.cfg.OwnerID == 0 {
 		return
+	}
+
+	// Smart evening reflection: only send if user had 3+ messages today AND average mood < 6
+	if s.store != nil {
+		userMsgCount, err := s.store.GetUserMessageCountTodayByRole(s.cfg.OwnerID, "user")
+		if err != nil {
+			log.Printf("[%d] evening check get today msg count: %v", s.cfg.OwnerID, err)
+		}
+		if userMsgCount < 3 {
+			log.Printf("[%d] evening check skipped: only %d user messages today (need 3+)", s.cfg.OwnerID, userMsgCount)
+			return
+		}
+
+		moods, err := s.store.GetRecentAutoMoods(s.cfg.OwnerID, 5)
+		if err != nil {
+			log.Printf("[%d] evening check get auto moods: %v", s.cfg.OwnerID, err)
+		}
+		if len(moods) > 0 {
+			sum := 0
+			for _, m := range moods {
+				sum += m
+			}
+			avg := float64(sum) / float64(len(moods))
+			if avg >= 6.0 {
+				log.Printf("[%d] evening check skipped: avg mood %.1f >= 6 (user seems fine)", s.cfg.OwnerID, avg)
+				return
+			}
+			log.Printf("[%d] evening check triggered: avg mood %.1f < 6, %d msgs today", s.cfg.OwnerID, avg, userMsgCount)
+		}
 	}
 
 	inline := &tele.ReplyMarkup{}
@@ -830,5 +940,282 @@ func (s *Scheduler) performBackup() {
 		} else {
 			log.Printf("backup: removed old %s", name)
 		}
+	}
+}
+
+// --- Proactive messages ---
+
+// milestoneThresholds defines the round message counts that trigger a milestone notification.
+var milestoneThresholds = []int{100, 200, 500, 1000, 2000, 5000}
+
+// proactiveLoop runs hourly checks for streak warnings, milestone delivery, and weekend summaries.
+func (s *Scheduler) proactiveLoop() {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-ticker.C:
+			if !s.IsEnabled() || s.store == nil {
+				continue
+			}
+			s.checkStreakWarnings()
+			s.checkMilestoneDelivery()
+			s.checkWeekendSummary()
+		}
+	}
+}
+
+// dateToInt converts a time to YYYYMMDD integer (same as bot/handlers.go dateToInt).
+func dateToInt(t time.Time) int {
+	return t.Year()*10000 + int(t.Month())*100 + t.Day()
+}
+
+// checkStreakWarnings warns users whose streak is about to expire.
+// Triggers if: streak > 3, last_streak_date == yesterday, current hour >= 20.
+func (s *Scheduler) checkStreakWarnings() {
+	now := time.Now()
+	if now.Hour() < 20 {
+		return
+	}
+
+	yesterday := dateToInt(now.AddDate(0, 0, -1))
+	todayStr := now.Format("20060102")
+
+	users, err := s.store.GetAllUsers()
+	if err != nil {
+		log.Printf("streak warning get users: %v", err)
+		return
+	}
+
+	for _, u := range users {
+		// Skip negative user IDs (group chats)
+		if u.UserID < 0 {
+			continue
+		}
+
+		streakDays, err := s.store.GetCounter(u.UserID, "streak_days")
+		if err != nil || streakDays <= 3 {
+			continue
+		}
+
+		lastDate, err := s.store.GetCounter(u.UserID, "last_streak_date")
+		if err != nil || lastDate != yesterday {
+			continue
+		}
+
+		// Rate limit: max 1 streak warning per day per user
+		warnKey := fmt.Sprintf("streak_warned_%s", todayStr)
+		alreadyWarned, _ := s.store.GetCounter(u.UserID, warnKey)
+		if alreadyWarned > 0 {
+			continue
+		}
+
+		msg := fmt.Sprintf(models.FmtStreakWarning, streakDays)
+		recipient := &chatRecipient{id: u.UserID}
+		if _, sendErr := s.tg.Send(recipient, msg); sendErr != nil {
+			log.Printf("[%d] streak warning send: %v", u.UserID, sendErr)
+			continue
+		}
+
+		if err := s.store.SetCounter(u.UserID, warnKey, 1); err != nil {
+			log.Printf("[%d] streak warning set counter: %v", u.UserID, err)
+		}
+
+		if _, err := s.store.SaveMessage(u.UserID, "bot", msg); err != nil {
+			log.Printf("[%d] streak warning save msg: %v", u.UserID, err)
+		}
+
+		log.Printf("[%d] streak warning sent: %d day streak expiring", u.UserID, streakDays)
+	}
+}
+
+// checkMilestoneDelivery checks for pending milestone notifications and delivers them after a delay.
+func (s *Scheduler) checkMilestoneDelivery() {
+	now := time.Now()
+	todayStr := now.Format("20060102")
+
+	users, err := s.store.GetAllUsers()
+	if err != nil {
+		log.Printf("milestone check get users: %v", err)
+		return
+	}
+
+	for _, u := range users {
+		if u.UserID < 0 {
+			continue
+		}
+
+		// Rate limit: max 1 milestone per day per user
+		milestoneKey := fmt.Sprintf("milestone_sent_%s", todayStr)
+		alreadySent, _ := s.store.GetCounter(u.UserID, milestoneKey)
+		if alreadySent > 0 {
+			continue
+		}
+
+		totalCount, err := s.store.GetMessageCount(u.UserID)
+		if err != nil {
+			continue
+		}
+
+		for _, threshold := range milestoneThresholds {
+			pendingKey := fmt.Sprintf("milestone_pending_%d", threshold)
+			pendingTS, _ := s.store.GetCounter(u.UserID, pendingKey)
+
+			if pendingTS > 0 {
+				// Check if 2-6 hours have passed since the milestone was recorded
+				elapsed := now.Unix() - int64(pendingTS)
+				minDelay := int64(2 * 3600) // 2 hours
+				maxDelay := int64(6 * 3600) // 6 hours
+				randomDelay := minDelay + int64(rand.Intn(int(maxDelay-minDelay)))
+				if elapsed < randomDelay {
+					continue
+				}
+
+				// Generate personalized comment via Claude
+				var msg string
+				comment, clErr := s.claude.Ask(
+					context.Background(),
+					fmt.Sprintf(models.MilestoneCommentPrompt, threshold),
+					fmt.Sprintf("Пользователь написал %d сообщений", threshold),
+				)
+				if clErr != nil {
+					log.Printf("[%d] milestone comment generate: %v", u.UserID, clErr)
+					msg = fmt.Sprintf(models.FmtMilestone, threshold)
+				} else {
+					msg = fmt.Sprintf(models.FmtMilestone, threshold) + " " + comment
+				}
+
+				recipient := &chatRecipient{id: u.UserID}
+				if _, sendErr := s.tg.Send(recipient, msg); sendErr != nil {
+					log.Printf("[%d] milestone send: %v", u.UserID, sendErr)
+					continue
+				}
+
+				// Clear pending and mark as sent
+				if err := s.store.SetCounter(u.UserID, pendingKey, 0); err != nil {
+					log.Printf("[%d] milestone clear pending: %v", u.UserID, err)
+				}
+				if err := s.store.SetCounter(u.UserID, milestoneKey, 1); err != nil {
+					log.Printf("[%d] milestone set sent: %v", u.UserID, err)
+				}
+
+				if _, err := s.store.SaveMessage(u.UserID, "bot", msg); err != nil {
+					log.Printf("[%d] milestone save msg: %v", u.UserID, err)
+				}
+
+				log.Printf("[%d] milestone delivered: %d messages", u.UserID, threshold)
+				break // One milestone at a time
+			}
+
+			// Check if user just crossed a threshold (current count >= threshold, no pending set)
+			if totalCount >= threshold {
+				// Check if already delivered for this threshold
+				deliveredKey := fmt.Sprintf("milestone_delivered_%d", threshold)
+				delivered, _ := s.store.GetCounter(u.UserID, deliveredKey)
+				if delivered > 0 {
+					continue
+				}
+
+				// Set pending timestamp for delayed delivery
+				if err := s.store.SetCounter(u.UserID, pendingKey, int(now.Unix())); err != nil {
+					log.Printf("[%d] milestone set pending: %v", u.UserID, err)
+				}
+				if err := s.store.SetCounter(u.UserID, deliveredKey, 1); err != nil {
+					log.Printf("[%d] milestone set delivered: %v", u.UserID, err)
+				}
+
+				log.Printf("[%d] milestone pending set for %d messages", u.UserID, threshold)
+				break
+			}
+		}
+	}
+}
+
+// checkWeekendSummary sends a fun weekly mini-summary on Saturday at 12:00.
+func (s *Scheduler) checkWeekendSummary() {
+	now := time.Now()
+	if now.Weekday() != time.Saturday || now.Hour() != 12 {
+		return
+	}
+
+	todayStr := now.Format("20060102")
+
+	users, err := s.store.GetAllUsers()
+	if err != nil {
+		log.Printf("weekend summary get users: %v", err)
+		return
+	}
+
+	weekAgo := now.AddDate(0, 0, -7)
+
+	for _, u := range users {
+		if u.UserID < 0 {
+			continue
+		}
+
+		// Rate limit: max 1 weekend summary per day per user
+		summaryKey := fmt.Sprintf("weekend_summary_%s", todayStr)
+		alreadySent, _ := s.store.GetCounter(u.UserID, summaryKey)
+		if alreadySent > 0 {
+			continue
+		}
+
+		// Check if user was active this week (5+ messages)
+		weeklyMsgCount, err := s.store.GetUserMessageCountSinceDateByRole(u.UserID, weekAgo, "user")
+		if err != nil {
+			log.Printf("[%d] weekend summary get week count: %v", u.UserID, err)
+			continue
+		}
+		if weeklyMsgCount < 5 {
+			continue
+		}
+
+		// Count mood categories from auto_mood data
+		moods, err := s.store.GetRecentAutoMoods(u.UserID, 50)
+		if err != nil {
+			log.Printf("[%d] weekend summary get moods: %v", u.UserID, err)
+		}
+
+		complaints := 0 // mood < 5
+		joys := 0       // mood >= 7
+		for _, m := range moods {
+			if m < 5 {
+				complaints++
+			}
+			if m >= 7 {
+				joys++
+			}
+		}
+
+		// Generate comment via Claude
+		comment, clErr := s.claude.Ask(
+			context.Background(),
+			fmt.Sprintf(models.WeekendSummaryPrompt, weeklyMsgCount, complaints, joys),
+			fmt.Sprintf("Сообщений: %d, жалоб: %d, радости: %d", weeklyMsgCount, complaints, joys),
+		)
+		if clErr != nil {
+			log.Printf("[%d] weekend summary generate: %v", u.UserID, clErr)
+			comment = fmt.Sprintf("Жаловался %d раз, радовался %d раз.", complaints, joys)
+		}
+
+		msg := fmt.Sprintf(models.FmtWeekendSummary, weeklyMsgCount, comment)
+		recipient := &chatRecipient{id: u.UserID}
+		if _, sendErr := s.tg.Send(recipient, msg); sendErr != nil {
+			log.Printf("[%d] weekend summary send: %v", u.UserID, sendErr)
+			continue
+		}
+
+		if err := s.store.SetCounter(u.UserID, summaryKey, 1); err != nil {
+			log.Printf("[%d] weekend summary set counter: %v", u.UserID, err)
+		}
+
+		if _, err := s.store.SaveMessage(u.UserID, "bot", msg); err != nil {
+			log.Printf("[%d] weekend summary save msg: %v", u.UserID, err)
+		}
+
+		log.Printf("[%d] weekend summary sent: %d msgs, %d complaints, %d joys", u.UserID, weeklyMsgCount, complaints, joys)
 	}
 }
