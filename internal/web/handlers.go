@@ -541,6 +541,7 @@ func (s *Server) handlePrompts(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if req.Delete {
+			log.Printf("web: prompt override deleted: %s", req.Name)
 			if err := s.store.DeletePromptOverride(req.Name); err != nil {
 				log.Printf("web: delete prompt override: %v", err)
 				s.writeError(w, http.StatusInternalServerError, "failed to delete prompt override")
@@ -551,6 +552,7 @@ func (s *Server) handlePrompts(w http.ResponseWriter, r *http.Request) {
 				s.writeError(w, http.StatusBadRequest, "value is required")
 				return
 			}
+			log.Printf("web: prompt override: %s (len=%d)", req.Name, len(req.Value))
 			if err := s.store.SavePromptOverride(req.Name, req.Value); err != nil {
 				log.Printf("web: save prompt override: %v", err)
 				s.writeError(w, http.StatusInternalServerError, "failed to save prompt override")
@@ -663,10 +665,20 @@ func (s *Server) handleBackup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("web: backup created: %s", destPath)
+	log.Printf("web: backup downloaded by auth user")
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	http.ServeFile(w, r, destPath)
+
+	// Clean up temp backup file after serving
+	go func() {
+		// Small delay to ensure file is fully sent
+		time.Sleep(5 * time.Second)
+		if err := os.Remove(destPath); err != nil {
+			log.Printf("web: remove backup temp file: %v", err)
+		}
+	}()
 }
 
 // handleAnalytics returns comprehensive analytics for a user.

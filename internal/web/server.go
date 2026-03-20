@@ -100,8 +100,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/custom-achievements", s.authAPI(s.csrfCheck(s.handleCustomAchievements)))
 	s.mux.HandleFunc("/api/runtime-config", s.authAPI(s.csrfCheck(s.handleRuntimeConfig)))
 
-	// Metrics endpoint — no auth, open for Prometheus scraping
-	s.mux.HandleFunc("/metrics", s.handleMetrics)
+	// Metrics endpoint — auth-protected
+	s.mux.HandleFunc("/metrics", s.authAPI(s.handleMetrics))
 
 	// Static files — protected by auth middleware (cookie or query param)
 	staticFS, err := fs.Sub(staticFiles, "static")
@@ -135,6 +135,7 @@ func (s *Server) handleCSRF(w http.ResponseWriter, r *http.Request) {
 }
 
 // authAPI wraps an API handler with Bearer token authentication.
+// Note: no per-IP rate limiting is applied since all endpoints require auth token.
 func (s *Server) authAPI(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions {
@@ -159,7 +160,7 @@ func (s *Server) authStatic(next http.Handler) http.Handler {
 			return
 		}
 
-		// Check query param and set cookie on success for browser access
+		// Check query param, set cookie and redirect to strip token from URL
 		if s.checkQueryToken(r) {
 			http.SetCookie(w, &http.Cookie{
 				Name:     "auth_token",
@@ -168,7 +169,8 @@ func (s *Server) authStatic(next http.Handler) http.Handler {
 				HttpOnly: true,
 				SameSite: http.SameSiteStrictMode,
 			})
-			next.ServeHTTP(w, r)
+			cleanURL := r.URL.Path
+			http.Redirect(w, r, cleanURL, http.StatusFound)
 			return
 		}
 

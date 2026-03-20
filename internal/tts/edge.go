@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 type EdgeTTS struct {
@@ -23,8 +24,24 @@ func (t *EdgeTTS) Available() bool {
 	return err == nil
 }
 
+// sanitizeTTSText strips shell metacharacters and limits length
+// to prevent command injection via edge-tts arguments.
+func sanitizeTTSText(text string) string {
+	if len(text) > 500 {
+		text = text[:500]
+	}
+	replacer := strings.NewReplacer(
+		"`", "", "$", "", "\\", "",
+		"(", "", ")", "", "{", "", "}", "",
+		";", ",", "&", "", "|", "",
+		"<", "", ">", "",
+	)
+	return replacer.Replace(text)
+}
+
 // Caller is responsible for removing the returned temp file.
 func (t *EdgeTTS) Synthesize(ctx context.Context, text string) (string, error) {
+	text = sanitizeTTSText(text)
 	tmpFile, err := os.CreateTemp("", "tts-*.mp3")
 	if err != nil {
 		return "", fmt.Errorf("create temp: %w", err)

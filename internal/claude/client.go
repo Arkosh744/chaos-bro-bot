@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"math/rand"
 	"os/exec"
@@ -12,13 +13,14 @@ import (
 	"time"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/metrics"
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 )
 
 const (
 	offlineThreshold   = 3
 	offlineRetryPeriod = 5 * time.Minute
 	maxCacheResponses  = 10
-	cacheKeyLength     = 50
+	maxCacheKeys       = 100
 )
 
 // responseCache stores recent responses keyed by prompt prefix for offline fallback.
@@ -32,6 +34,17 @@ var cache = &responseCache{items: make(map[string][]string)}
 func (rc *responseCache) Add(key, response string) {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
+
+	// Evict oldest keys if cache is too large
+	if len(rc.items) >= maxCacheKeys {
+		for k := range rc.items {
+			delete(rc.items, k)
+			if len(rc.items) < maxCacheKeys {
+				break
+			}
+		}
+	}
+
 	rc.items[key] = append(rc.items[key], response)
 	if len(rc.items[key]) > maxCacheResponses {
 		rc.items[key] = rc.items[key][1:]
@@ -49,10 +62,10 @@ func (rc *responseCache) GetRandom(key string) (string, bool) {
 }
 
 func cacheKey(systemPrompt string) string {
-	if len(systemPrompt) > cacheKeyLength {
-		return systemPrompt[:cacheKeyLength]
-	}
-	return systemPrompt
+	// Use full prompt hash to avoid cross-user collision
+	h := fnv.New32a()
+	h.Write([]byte(systemPrompt))
+	return fmt.Sprintf("%x", h.Sum32())
 }
 
 type Client struct {
@@ -82,8 +95,8 @@ func (c *Client) IsOffline() bool {
 // dangerousPatterns are phrases that indicate prompt injection attempts
 // to make Claude execute system commands or access files.
 var dangerousPatterns = []string{
-	"выполни",
-	"execute",
+	"выполни команду",
+	"execute command",
 	"run command",
 	"запусти команду",
 	"system(",
@@ -96,8 +109,6 @@ var dangerousPatterns = []string{
 	"rm -f",
 	"sudo ",
 	"chmod ",
-	"curl ",
-	"wget ",
 	"cat /etc",
 	"DROP TABLE",
 	"DELETE FROM",
@@ -107,8 +118,9 @@ var dangerousPatterns = []string{
 	"`rm",
 	"$(rm",
 	"используй bash",
-	"use bash",
-	"bash",
+	"use bash to",
+	"open bash",
+	"run bash",
 	"use the terminal",
 	"open a shell",
 	"access the file",
@@ -134,17 +146,21 @@ func IsDangerousInput(text string) bool {
 }
 
 // SanitizeInput cleans user input before passing to Claude.
-// Limits length and strips control characters.
+// Limits length, strips control characters and zero-width/invisible Unicode.
 func SanitizeInput(text string) string {
 	// Hard limit on input length
 	if len(text) > 4000 {
 		text = text[:4000]
 	}
 
-	// Strip null bytes and control characters (except newlines/tabs)
+	// Strip null bytes, control characters, and zero-width/invisible Unicode
 	var clean strings.Builder
 	clean.Grow(len(text))
 	for _, r := range text {
+		// Drop zero-width and invisible characters that could bypass pattern matching
+		if r == '\u200b' || r == '\u200c' || r == '\u200d' || r == '\ufeff' || r == '\u00ad' {
+			continue
+		}
 		if r == '\n' || r == '\t' || r >= 32 {
 			clean.WriteRune(r)
 		}
@@ -186,7 +202,7 @@ func SanitizeOutput(text string) string {
 	for _, p := range outputDangerousPatterns {
 		if strings.Contains(lower, strings.ToLower(p)) {
 			log.Printf("Claude: sanitized dangerous output pattern: %s", p)
-			return "Хм, что-то пошло не так. Попробуй ещё раз."
+			return models.MsgClaudeDangerousOutput
 		}
 	}
 

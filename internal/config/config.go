@@ -59,7 +59,9 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("no config file found: %w", err)
 	}
 
-	// Expand env vars in token
+	// Expand env vars in config values (e.g. $TELEGRAM_TOKEN).
+	// Note: this expands ALL env vars in the entire file, not just specific fields.
+	// Avoid putting user-controlled values in the config file.
 	expanded := os.ExpandEnv(string(data))
 
 	var cfg Config
