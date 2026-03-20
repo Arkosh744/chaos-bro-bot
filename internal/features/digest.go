@@ -8,22 +8,10 @@ import (
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/claude"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 )
 
-const DigestPrompt = `Ты — трикстер. Составь краткий еженедельный дайджест на основе данных.
-
-Формат:
-- Сколько сообщений написал
-- О чём больше всего говорил
-- Топ-момент недели (лучшее настроение)
-- Худший момент (самое плохое настроение)
-- Количество ачивок за неделю
-- Статус streak (серия дней)
-- Самый активный день
-- Сколько раз ныл
-- Что-нибудь подъёбывающее в конце
-
-Коротко, 5-8 строк. Дерзко. На русском. Маты допустимы.`
+const DigestPrompt = models.DigestPrompt
 
 // GenerateDigest creates a weekly trickster-style digest based on user summary and recent messages.
 func GenerateDigest(ctx context.Context, cl *claude.Client, store *storage.Storage, userID int64) (string, error) {

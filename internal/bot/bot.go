@@ -11,6 +11,7 @@ import (
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
 	"github.com/Arkosh744/chaos-bro-bot/internal/tts"
 	"github.com/Arkosh744/chaos-bro-bot/internal/web"
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -33,29 +34,29 @@ var menuMore = &tele.ReplyMarkup{ResizeKeyboard: true}
 
 var (
 	// Main menu buttons
-	btnGround    = menu.Text("👁 Очнись")
-	btnChaos     = menu.Text("🎲 Ебани куба")
-	btnPredict   = menu.Text("🔮 Судьба")
-	btnRandomize = menu.Text("🎱 Кинь кости")
-	btnBreathe   = menu.Text("🫁 Дыши")
-	btnMore      = menu.Text("➡️ Ещё")
+	btnGround    = menu.Text(models.BtnGround)
+	btnChaos     = menu.Text(models.BtnChaos)
+	btnPredict   = menu.Text(models.BtnPredict)
+	btnRandomize = menu.Text(models.BtnRandomize)
+	btnBreathe   = menu.Text(models.BtnBreathe)
+	btnMore      = menu.Text(models.BtnMore)
 
 	// Secondary menu buttons
-	btnRoast     = menuMore.Text("🔥 Зажарь")
-	btnWisdom    = menuMore.Text("🧙 Мудрость")
-	btnHoroscope = menuMore.Text("⭐ Гороскоп")
-	btnMood      = menuMore.Text("📊 Настроение")
-	btnMirror    = menuMore.Text("🪞 Зеркало")
-	btnBack      = menuMore.Text("⬅️ Назад")
+	btnRoast     = menuMore.Text(models.BtnRoast)
+	btnWisdom    = menuMore.Text(models.BtnWisdom)
+	btnHoroscope = menuMore.Text(models.BtnHoroscope)
+	btnMood      = menuMore.Text(models.BtnMood)
+	btnMirror    = menuMore.Text(models.BtnMirror)
+	btnBack      = menuMore.Text(models.BtnBack)
 )
 
 var inlineMenu = &tele.ReplyMarkup{}
 var (
-	btnMoreGround    = inlineMenu.Data("🔄 Ещё", "more_ground")
-	btnMoreChaos     = inlineMenu.Data("🔄 Другое", "more_chaos")
-	btnReflectGood   = inlineMenu.Data("\U0001F60A Что хорошего", "reflect_good")
-	btnReflectBad    = inlineMenu.Data("\U0001F624 Что бесило", "reflect_bad")
-	btnReflectTmrw   = inlineMenu.Data("🎯 Что завтра", "reflect_tomorrow")
+	btnMoreGround    = inlineMenu.Data(models.BtnMoreGroundLabel, "more_ground")
+	btnMoreChaos     = inlineMenu.Data(models.BtnMoreChaosLabel, "more_chaos")
+	btnReflectGood   = inlineMenu.Data(models.BtnReflectGoodLabel, "reflect_good")
+	btnReflectBad    = inlineMenu.Data(models.BtnReflectBadLabel, "reflect_bad")
+	btnReflectTmrw   = inlineMenu.Data(models.BtnReflectTmrwLabel, "reflect_tomorrow")
 )
 
 func New(token string, ownerID int64, cl *claude.Client, whisper *groq.WhisperClient, store *storage.Storage, schedCfg scheduler.Config, cfg interface{}, webSrv *web.Server, groupInterjectChance int, fastModel, smartModel string, useWebhook bool, webhookURL string, webhookPort int) (*Bot, error) {
@@ -139,10 +140,10 @@ func (b *Bot) registerHandlers() {
 	b.tg.Handle(&btnMoreChaos, b.handleChaosMore)
 	b.tg.Handle(&btnBreathe, b.handleBreathing)
 	b.tg.Handle(&btnMore, func(c tele.Context) error {
-		return c.Send("🎭 Дополнительные возможности:", menuMore)
+		return c.Send(models.MsgMoreFeatures, menuMore)
 	})
 	b.tg.Handle(&btnBack, func(c tele.Context) error {
-		return c.Send("Главное меню:", menu)
+		return c.Send(models.MsgMainMenu, menu)
 	})
 	b.tg.Handle("/capsule", b.handleCapsule)
 	for i := 1; i <= 10; i++ {
@@ -256,7 +257,7 @@ func (b *Bot) Start() {
 
 	if b.ownerID != 0 {
 		owner := &tele.User{ID: b.ownerID}
-		if _, err := b.tg.Send(owner, "Йо, я проснулся. Готов к хаосу."); err != nil {
+		if _, err := b.tg.Send(owner, models.MsgStartup); err != nil {
 			log.Printf("startup message: %v", err)
 		}
 	}

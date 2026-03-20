@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 )
 
 type SleepDay struct {
@@ -15,14 +16,14 @@ type SleepDay struct {
 	SleepHours float64
 }
 
-var weekdayNames = map[time.Weekday]string{
-	time.Monday:    "Пн",
-	time.Tuesday:   "Вт",
-	time.Wednesday: "Ср",
-	time.Thursday:  "Чт",
-	time.Friday:    "Пт",
-	time.Saturday:  "Сб",
-	time.Sunday:    "Вс",
+// weekdayIndex maps time.Weekday to models.WeekdayNamesShort index (Monday=0 ... Sunday=6).
+func weekdayIndex(wd time.Weekday) int {
+	// time.Weekday: Sunday=0, Monday=1 ... Saturday=6
+	// WeekdayNamesShort: [0]=Пн, [1]=Вт ... [6]=Вс
+	if wd == time.Sunday {
+		return 6
+	}
+	return int(wd) - 1
 }
 
 func AnalyzeSleep(store *storage.Storage, userID int64, days int) []SleepDay {
@@ -77,11 +78,11 @@ func sleepEmoji(hours float64) string {
 
 func FormatSleepReport(days []SleepDay) string {
 	if len(days) == 0 {
-		return "Недостаточно данных для анализа сна. Пиши чаще, тогда будет что анализировать."
+		return models.MsgSleepNoData
 	}
 
 	var sb strings.Builder
-	sb.WriteString("\U0001F634 Твой сон за последние дни:\n\n")
+	sb.WriteString(models.MsgSleepHeader)
 
 	var totalHours float64
 	latestSleep := ""
@@ -89,7 +90,7 @@ func FormatSleepReport(days []SleepDay) string {
 
 	for _, d := range days {
 		date, _ := time.Parse("2006-01-02", d.Date)
-		dayName := weekdayNames[date.Weekday()]
+		dayName := models.WeekdayNamesShort[weekdayIndex(date.Weekday())]
 		emoji := sleepEmoji(d.SleepHours)
 
 		sb.WriteString(fmt.Sprintf("%s: %s → %s (%.1fч) %s\n",
@@ -104,23 +105,23 @@ func FormatSleepReport(days []SleepDay) string {
 	}
 
 	avg := totalHours / float64(len(days))
-	sb.WriteString(fmt.Sprintf("\nСреднее: %.1fч\n", avg))
+	sb.WriteString(fmt.Sprintf(models.FmtSleepAvg, avg))
 
 	if latestSleepDay != "" {
-		sb.WriteString(fmt.Sprintf("Позже всего ложишься: %s (%s). Кабан бы не одобрил.", latestSleepDay, latestSleep))
+		sb.WriteString(fmt.Sprintf(models.FmtSleepLatest, latestSleepDay, latestSleep))
 	}
 
 	// Sleep recommendations based on data
 	if avg < 6 {
-		sb.WriteString("\n\n\u26A0\uFE0F Ты спишь в среднем меньше 6 часов. Это пиздец. Серьёзно, ложись раньше.")
+		sb.WriteString(models.MsgSleepCritical)
 	} else if avg < 7 {
-		sb.WriteString("\n\n\u26A0\uFE0F Меньше 7 часов в среднем. Не критично, но мозг точно не благодарен.")
+		sb.WriteString(models.MsgSleepWarning)
 	}
 
 	if latestSleep != "" && latestSleep >= "02:00" {
-		sb.WriteString("\n\n\U0001F319 Ложишься после 2 ночи. Попробуй хотя бы в 1. Твой организм скажет спасибо.")
+		sb.WriteString(models.MsgSleepLateAfter2)
 	} else if latestSleep != "" && latestSleep >= "01:00" {
-		sb.WriteString("\n\n\U0001F319 Поздно ложишься. Хотя бы до полуночи попробуй — будет легче вставать.")
+		sb.WriteString(models.MsgSleepLateAfterMid)
 	}
 
 	return sb.String()

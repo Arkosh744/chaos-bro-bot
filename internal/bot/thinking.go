@@ -5,17 +5,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 	tele "gopkg.in/telebot.v4"
 )
 
-var thinkingPhrases = []string{
-	"🤔",
-	"🤔.",
-	"🤔..",
-	"🤔...",
-	"🤔....",
-	"🤔.....",
-}
+var thinkingPhrases = models.ThinkingPhrases
 
 // startThinking sends a typing indicator, then a "thinking" message and animates dots.
 // Returns reply func that deletes the thinking message and sends the real answer.
@@ -26,7 +20,7 @@ func (b *Bot) startThinking(c tele.Context) (reply func(text string, opts ...int
 	}
 
 	// Send WITHOUT reply keyboard — otherwise Telegram blocks Edit
-	msg, err := b.tg.Send(c.Recipient(), "🤔.")
+	msg, err := b.tg.Send(c.Recipient(), models.ThinkingInitial)
 	if err != nil {
 		log.Printf("[%d] thinking send error: %v", c.Sender().ID, err)
 		return func(text string, opts ...interface{}) error {

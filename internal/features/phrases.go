@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 )
 
 func AnalyzeFrequentPhrases(msgs []storage.Message) []string {
@@ -75,5 +76,5 @@ func PhrasesPromptSuffix(phrases []string) string {
 		return ""
 	}
 
-	return "\n\nПользователь часто использует слова: " + strings.Join(phrases, ", ") + ". Иногда вставляй их в свои ответы естественно."
+	return models.PhrasesPromptPrefix + strings.Join(phrases, ", ") + models.PhrasesPromptSuffix
 }

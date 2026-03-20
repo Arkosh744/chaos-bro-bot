@@ -8,24 +8,11 @@ import (
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/claude"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 )
 
 // CategoryLabels maps profile fact categories to their display labels.
-var CategoryLabels = map[string]string{
-	"name":          "👤 Имя",
-	"age":           "🎂 Возраст",
-	"city":          "📍 Город",
-	"job":           "💼 Работа",
-	"hobbies":       "🎮 Хобби",
-	"music":         "🎵 Музыка",
-	"games":         "🕹 Игры",
-	"food":          "🍕 Еда",
-	"mood_pattern":  "😤 Настроение",
-	"relationships": "💑 Отношения",
-	"pets":          "🐾 Питомцы",
-	"goals":         "🎯 Цели",
-	"quirks":        "🤪 Странности",
-}
+var CategoryLabels = models.CategoryLabels
 
 func ExtractFacts(ctx context.Context, cl *claude.Client, store *storage.Storage, userID int64) error {
 	summary, _, err := store.GetSummary(userID)
@@ -94,11 +81,11 @@ func ExtractFacts(ctx context.Context, cl *claude.Client, store *storage.Storage
 
 func FormatProfile(facts []storage.UserFact) string {
 	if len(facts) == 0 {
-		return "Пока ничего не знаю о тебе. Пиши больше — разберусь."
+		return models.MsgProfileEmpty
 	}
 
 	var sb strings.Builder
-	sb.WriteString("📋 *Твой профиль:*\n\n")
+	sb.WriteString(models.MsgProfileHeader)
 
 	for _, f := range facts {
 		label, ok := CategoryLabels[f.Category]
@@ -108,6 +95,6 @@ func FormatProfile(facts []storage.UserFact) string {
 		sb.WriteString(label + ": " + f.Fact + "\n")
 	}
 
-	sb.WriteString("\n_Собрано из наших разговоров. Я внимательный._")
+	sb.WriteString(models.MsgProfileFooter)
 	return sb.String()
 }

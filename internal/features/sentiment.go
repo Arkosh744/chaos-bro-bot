@@ -6,10 +6,10 @@ import (
 	"strings"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/claude"
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 )
 
-const SentimentPrompt = `Оцени настроение этого сообщения по шкале 1-10 (1=очень плохо, 10=отлично).
-Ответь ТОЛЬКО числом. Ничего больше.`
+const SentimentPrompt = models.SentimentPrompt
 
 func AnalyzeSentiment(ctx context.Context, cl *claude.Client, text string) (int, error) {
 	resp, err := cl.Ask(ctx, SentimentPrompt, text)

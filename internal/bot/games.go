@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/features"
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -34,16 +35,16 @@ func (b *Bot) handleGame(c tele.Context) error {
 	inline := &tele.ReplyMarkup{}
 	inline.Inline(
 		inline.Row(
-			inline.Data("🔢 Угадай число", "game_guess"),
-			inline.Data("🤔 Правда/Действие", "game_td"),
+			inline.Data(models.BtnGameGuess, "game_guess"),
+			inline.Data(models.BtnGameTD, "game_td"),
 		),
 		inline.Row(
-			inline.Data("🧩 Данетки", "game_danetki"),
-			inline.Data("📚 Тривиа", "game_trivia"),
+			inline.Data(models.BtnGameDanetki, "game_danetki"),
+			inline.Data(models.BtnGameTrivia, "game_trivia"),
 		),
 	)
 
-	return c.Send("🎮 Выбирай игру:", inline)
+	return c.Send(models.MsgGameChoose, inline)
 }
 
 func (b *Bot) handleGameStop(c tele.Context) error {
@@ -51,26 +52,26 @@ func (b *Bot) handleGameStop(c tele.Context) error {
 	gameType, _ := b.store.GetCounter(userID, "game_active")
 
 	if gameType == gameNone {
-		return c.Send("Нет активной игры.", menu)
+		return c.Send(models.MsgGameNoActive, menu)
 	}
 
 	if gameType == gameDanetki {
 		answer, _ := b.store.GetFact(userID, "game_danetki_answer")
 		b.clearGameState(userID)
 		if answer != "" {
-			return c.Send("🧩 Сдаёшься? Ладно.\n\nОтвет: "+answer, menu)
+			return c.Send(fmt.Sprintf(models.FmtDanetkiGiveUp, answer), menu)
 		}
-		return c.Send("Игра завершена.", menu)
+		return c.Send(models.MsgGameOver, menu)
 	}
 
 	b.clearGameState(userID)
-	return c.Send("Игра завершена.", menu)
+	return c.Send(models.MsgGameOver, menu)
 }
 
 func (b *Bot) handleGameScore(c tele.Context) error {
 	userID := c.Sender().ID
 	score, _ := b.store.GetCounter(userID, "trivia_highscore")
-	return c.Send(fmt.Sprintf("📚 Твой рекорд в тривии: %d", score), menu)
+	return c.Send(fmt.Sprintf(models.FmtTriviaHighscore, score), menu)
 }
 
 func (b *Bot) clearGameState(userID int64) {
@@ -94,7 +95,7 @@ func (b *Bot) handleStartGuess(c tele.Context) error {
 	b.store.SetCounter(userID, "guess_target", target)
 	b.store.SetCounter(userID, "guess_attempts", 0)
 
-	return c.Edit("🔢 Я загадал число от 1 до 100. У тебя 7 попыток. Пиши число!")
+	return c.Edit(models.MsgGuessStart)
 }
 
 func (b *Bot) handleStartTruthDare(c tele.Context) error {
@@ -104,12 +105,12 @@ func (b *Bot) handleStartTruthDare(c tele.Context) error {
 	inline := &tele.ReplyMarkup{}
 	inline.Inline(
 		inline.Row(
-			inline.Data("🤫 Правда", "td_truth"),
-			inline.Data("🎬 Действие", "td_dare"),
+			inline.Data(models.BtnTDTruth, "td_truth"),
+			inline.Data(models.BtnTDDare, "td_dare"),
 		),
 	)
 
-	return c.Edit("🤔 Правда или действие?", inline)
+	return c.Edit(models.MsgTDChoose, inline)
 }
 
 func (b *Bot) handleTruthChoice(c tele.Context) error {
@@ -124,7 +125,7 @@ func (b *Bot) handleTruthChoice(c tele.Context) error {
 		return c.Send("Не получилось придумать вопрос. "+features.RandomFallback(), menu)
 	}
 
-	return replyFn("🤫 Правда:\n\n"+result, menu)
+	return replyFn(models.MsgTruthPrefix+result, menu)
 }
 
 func (b *Bot) handleDareChoice(c tele.Context) error {
@@ -139,7 +140,7 @@ func (b *Bot) handleDareChoice(c tele.Context) error {
 		return c.Send("Не получилось придумать действие. "+features.RandomFallback(), menu)
 	}
 
-	return replyFn("🎬 Действие:\n\n"+result, menu)
+	return replyFn(models.MsgDarePrefix+result, menu)
 }
 
 func (b *Bot) handleStartDanetki(c tele.Context) error {
@@ -158,14 +159,14 @@ func (b *Bot) handleStartDanetki(c tele.Context) error {
 	if riddle == "" || answer == "" {
 		stop()
 		log.Printf("[%d] danetki parse failed: %s", userID, result)
-		return c.Send("Не получилось придумать загадку. Попробуй ещё раз.", menu)
+		return c.Send(models.MsgDanetkiParseFail, menu)
 	}
 
 	b.store.SetCounter(userID, "game_active", gameDanetki)
 	b.store.SaveFact(userID, "game_danetki_riddle", riddle)
 	b.store.SaveFact(userID, "game_danetki_answer", answer)
 
-	return replyFn("🧩 Данетка:\n\n"+riddle+"\n\nЗадавай вопросы, на которые можно ответить Да/Нет.\n/game stop — сдаться и узнать ответ.", menu)
+	return replyFn(fmt.Sprintf(models.MsgDanetkiStart, riddle), menu)
 }
 
 func (b *Bot) handleStartTrivia(c tele.Context) error {
@@ -193,7 +194,7 @@ func (b *Bot) sendTriviaQuestion(c tele.Context, userID int64) error {
 		stop()
 		log.Printf("[%d] trivia parse failed: %s", userID, result)
 		b.clearGameState(userID)
-		return c.Send("Не получилось придумать вопрос. Попробуй ещё раз.", menu)
+		return c.Send(models.MsgTriviaParseFail, menu)
 	}
 
 	b.store.SaveFact(userID, "trivia_correct", correct)
@@ -214,7 +215,7 @@ func (b *Bot) sendTriviaQuestion(c tele.Context, userID int64) error {
 		)
 	}
 
-	text := fmt.Sprintf("📚 Счёт: %d\n\n%s", score, question)
+	text := fmt.Sprintf(models.FmtTriviaScore, score, question)
 	return replyFn(text, inline)
 }
 
@@ -224,7 +225,7 @@ func (b *Bot) handleTriviaAnswer(c tele.Context, letter string) error {
 
 	gameType, _ := b.store.GetCounter(userID, "game_active")
 	if gameType != gameTrivia {
-		return c.Respond(&tele.CallbackResponse{Text: "Нет активной игры тривии"})
+		return c.Respond(&tele.CallbackResponse{Text: models.MsgTriviaNoActive})
 	}
 
 	correct, _ := b.store.GetFact(userID, "trivia_correct")
@@ -252,9 +253,9 @@ func (b *Bot) handleTriviaAnswer(c tele.Context, letter string) error {
 
 	b.clearGameState(userID)
 
-	msg := fmt.Sprintf("❌ Неправильно! Правильный ответ: %s\n\nТвой счёт: %d", correct, score)
+	msg := fmt.Sprintf(models.FmtTriviaWrong, correct, score)
 	if score > highscore {
-		msg += " (новый рекорд! 🎉)"
+		msg += models.MsgTriviaNewRecord
 	}
 
 	return c.Edit(msg)
@@ -280,11 +281,11 @@ func (b *Bot) handleGuessInput(c tele.Context, text string) error {
 
 	num, err := strconv.Atoi(strings.TrimSpace(text))
 	if err != nil {
-		return c.Send("Напиши число от 1 до 100.", menu)
+		return c.Send(models.MsgGuessNaN, menu)
 	}
 
 	if num < 1 || num > 100 {
-		return c.Send("От 1 до 100, дружище.", menu)
+		return c.Send(models.MsgGuessRange, menu)
 	}
 
 	target, _ := b.store.GetCounter(userID, "guess_target")
@@ -294,20 +295,20 @@ func (b *Bot) handleGuessInput(c tele.Context, text string) error {
 
 	if num == target {
 		b.clearGameState(userID)
-		return c.Send(fmt.Sprintf("🎉 Угадал за %d попыток! Число было %d.", attempts, target), menu)
+		return c.Send(fmt.Sprintf(models.FmtGuessCorrect, attempts, target), menu)
 	}
 
 	if attempts >= 7 {
 		b.clearGameState(userID)
-		return c.Send(fmt.Sprintf("💀 Попытки кончились! Число было %d.", target), menu)
+		return c.Send(fmt.Sprintf(models.FmtGuessLost, target), menu)
 	}
 
 	remaining := 7 - attempts
 	if num < target {
-		return c.Send(fmt.Sprintf("⬆️ Больше! (осталось %d попыток)", remaining), menu)
+		return c.Send(fmt.Sprintf(models.FmtGuessHigher, remaining), menu)
 	}
 
-	return c.Send(fmt.Sprintf("⬇️ Меньше! (осталось %d попыток)", remaining), menu)
+	return c.Send(fmt.Sprintf(models.FmtGuessLower, remaining), menu)
 }
 
 func (b *Bot) handleDanetkiInput(c tele.Context, text string) error {
@@ -318,7 +319,7 @@ func (b *Bot) handleDanetkiInput(c tele.Context, text string) error {
 
 	if riddle == "" || answer == "" {
 		b.clearGameState(userID)
-		return c.Send("Что-то пошло не так. Начни новую игру: /game", menu)
+		return c.Send(models.MsgDanetkiBroken, menu)
 	}
 
 	systemPrompt := fmt.Sprintf(features.DanetkiJudgePrompt, riddle, answer)
@@ -329,7 +330,7 @@ func (b *Bot) handleDanetkiInput(c tele.Context, text string) error {
 	if err != nil {
 		stop()
 		log.Printf("[%d] danetki judge error: %v", userID, err)
-		return c.Send("Не смог оценить вопрос. Попробуй другой.", menu)
+		return c.Send(models.MsgDanetkiBadJudge, menu)
 	}
 
 	result = strings.TrimSpace(result)

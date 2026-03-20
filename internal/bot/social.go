@@ -10,6 +10,7 @@ import (
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/features"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -17,7 +18,7 @@ import (
 
 func (b *Bot) handleDuel(c tele.Context) error {
 	if !isGroupChat(c) {
-		return c.Send("Дуэли работают только в группах. Найди себе соперника.")
+		return c.Send(models.MsgDuelOnlyGroups)
 	}
 
 	chatID := c.Chat().ID
@@ -25,27 +26,27 @@ func (b *Bot) handleDuel(c tele.Context) error {
 	log.Printf("[%d] /duel in chat %d", challengerID, chatID)
 
 	if c.Message().ReplyTo == nil || c.Message().ReplyTo.Sender == nil {
-		return c.Send("Ответь на сообщение того, кого хочешь вызвать на дуэль.")
+		return c.Send(models.MsgDuelReplyNeeded)
 	}
 
 	opponent := c.Message().ReplyTo.Sender
 	opponentID := opponent.ID
 
 	if opponentID == challengerID {
-		return c.Send("Дуэль с собой? Ты либо гений, либо одинок.")
+		return c.Send(models.MsgDuelSelf)
 	}
 
 	if opponentID == b.tg.Me.ID {
-		return c.Send("Не-не-не, я судья, а не участник.")
+		return c.Send(models.MsgDuelWithBot)
 	}
 
 	existing, err := b.store.GetActiveDuel(chatID)
 	if err != nil {
 		log.Printf("[%d] get active duel error: %v", chatID, err)
-		return c.Send("Что-то пошло не так. Попробуй позже.")
+		return c.Send(models.MsgDuelError)
 	}
 	if existing != nil {
-		return c.Send("В этом чате уже идёт дуэль. Дождись окончания.")
+		return c.Send(models.MsgDuelActive)
 	}
 
 	// Store opponent ID for category callback
@@ -55,19 +56,19 @@ func (b *Bot) handleDuel(c tele.Context) error {
 	inline := &tele.ReplyMarkup{}
 	inline.Inline(
 		inline.Row(
-			inline.Data("\U0001F9E0 Знания", "duel_cat_knowledge"),
-			inline.Data("\U0001F602 Юмор", "duel_cat_humor"),
+			inline.Data(models.BtnDuelKnowledge, "duel_cat_knowledge"),
+			inline.Data(models.BtnDuelHumor, "duel_cat_humor"),
 		),
 		inline.Row(
-			inline.Data("\U0001F3AE Игры", "duel_cat_games"),
-			inline.Data("\U0001F92A Абсурд", "duel_cat_absurd"),
+			inline.Data(models.BtnDuelGames, "duel_cat_games"),
+			inline.Data(models.BtnDuelAbsurd, "duel_cat_absurd"),
 		),
 	)
 
 	challengerName := c.Sender().FirstName
 	opponentName := opponent.FirstName
 
-	return c.Send(fmt.Sprintf("Дуэль! %s vs %s\n\nВыбери категорию:", challengerName, opponentName), inline)
+	return c.Send(fmt.Sprintf(models.FmtDuelChallenge, challengerName, opponentName), inline)
 }
 
 func (b *Bot) handleDuelCategory(c tele.Context, category string) error {
@@ -77,7 +78,7 @@ func (b *Bot) handleDuelCategory(c tele.Context, category string) error {
 	opponentIDInt, _ := b.store.GetCounter(challengerID, "duel_opponent")
 	opponentID := int64(opponentIDInt)
 	if opponentID == 0 {
-		return c.Edit("Дуэль устарела. Начни заново /duel.")
+		return c.Edit(models.MsgDuelExpired)
 	}
 
 	// Clear stored opponent
@@ -86,18 +87,13 @@ func (b *Bot) handleDuelCategory(c tele.Context, category string) error {
 	existing, err := b.store.GetActiveDuel(chatID)
 	if err != nil {
 		log.Printf("[%d] duel category check error: %v", chatID, err)
-		return c.Edit("Что-то пошло не так. Попробуй позже.")
+		return c.Edit(models.MsgDuelError)
 	}
 	if existing != nil {
-		return c.Edit("В этом чате уже идёт дуэль. Дождись окончания.")
+		return c.Edit(models.MsgDuelActive)
 	}
 
-	categoryPrompts := map[string]string{
-		"knowledge": "Придумай вопрос на эрудицию/знания для дуэли. Вопрос должен быть интересным и иметь неочевидный ответ.",
-		"humor":     "Придумай смешной вопрос или задание на юмор для дуэли. Кто ответит смешнее — тот победит.",
-		"games":     "Придумай вопрос про видеоигры для дуэли. Может быть про механики, лор, персонажей — любую тему.",
-		"absurd":    "Придумай максимально абсурдный и дурацкий вопрос для дуэли. Чем абсурднее ответ — тем лучше.",
-	}
+	categoryPrompts := models.DuelCategoryPrompts
 
 	prompt := features.DuelQuestionPrompt
 	if catPrompt, ok := categoryPrompts[category]; ok {
@@ -116,21 +112,21 @@ func (b *Bot) handleDuelCategory(c tele.Context, category string) error {
 	if err != nil {
 		stop()
 		log.Printf("[%d] create duel error: %v", chatID, err)
-		return c.Send("Не удалось создать дуэль.")
+		return c.Send(models.MsgDuelCreateFailed)
 	}
 
 	_, challengerFirst, _, _ := b.store.GetUserProfile(challengerID)
 	_, opponentFirst, _, _ := b.store.GetUserProfile(opponentID)
 	if challengerFirst == "" {
-		challengerFirst = "Игрок 1"
+		challengerFirst = models.MsgDuelDefaultPlayer1
 	}
 	if opponentFirst == "" {
-		opponentFirst = "Игрок 2"
+		opponentFirst = models.MsgDuelDefaultPlayer2
 	}
 
 	log.Printf("[%d] duel #%d created: %s vs %s (cat: %s)", chatID, duelID, challengerFirst, opponentFirst, category)
 
-	msg := fmt.Sprintf("Duel!\n\n%s vs %s\n\nВопрос: %s\n\nОба пишите ответ прямо в чат. У вас 60 секунд!",
+	msg := fmt.Sprintf(models.FmtDuelQuestion,
 		challengerFirst, opponentFirst, question)
 
 	go func() {
@@ -140,7 +136,7 @@ func (b *Bot) handleDuelCategory(c tele.Context, category string) error {
 			return
 		}
 		b.store.CompleteDuel(duel.ID, 0)
-		b.tg.Send(&tele.Chat{ID: chatID}, "⏰ Время вышло! Дуэль отменена — оба слишком медленные.")
+		b.tg.Send(&tele.Chat{ID: chatID}, models.MsgDuelTimedOut)
 	}()
 
 	return replyFn(msg)
@@ -184,7 +180,7 @@ func (b *Bot) handleDuelAnswer(c tele.Context) bool {
 	}
 
 	if duel.ChallengerAnswer == "" || duel.OpponentAnswer == "" {
-		if err := c.Send(fmt.Sprintf("%s ответил! Ждём второго участника...", senderName)); err != nil {
+		if err := c.Send(fmt.Sprintf(models.FmtDuelWaiting, senderName)); err != nil {
 			log.Printf("[%d] duel waiting send error: %v", chatID, err)
 		}
 		return true
@@ -196,12 +192,13 @@ func (b *Bot) handleDuelAnswer(c tele.Context) bool {
 
 func (b *Bot) judgeDuel(c tele.Context, duel *storage.Duel) {
 	chatID := duel.ChatID
-	judgePrompt := fmt.Sprintf(features.DuelJudgePrompt, duel.Question, duel.ChallengerAnswer, duel.OpponentAnswer)
+	systemPrompt := fmt.Sprintf(features.DuelJudgePrompt, duel.Question)
+	userMessage := fmt.Sprintf("Ответ игрока 1: %s\nОтвет игрока 2: %s", duel.ChallengerAnswer, duel.OpponentAnswer)
 
-	result, err := b.claude.Ask(context.Background(), judgePrompt, "Суди дуэль")
+	result, err := b.claude.Ask(context.Background(), systemPrompt, userMessage)
 	if err != nil {
 		log.Printf("[%d] duel judge error: %v", chatID, err)
-		if sendErr := c.Send("Не получилось рассудить дуэль. Ничья!"); sendErr != nil {
+		if sendErr := c.Send(models.MsgDuelJudgeFailed); sendErr != nil {
 			log.Printf("[%d] duel judge send error: %v", chatID, sendErr)
 		}
 		b.store.CompleteDuel(duel.ID, 0)
@@ -228,10 +225,10 @@ func (b *Bot) judgeDuel(c tele.Context, duel *storage.Duel) {
 	_, challengerFirst, _, _ := b.store.GetUserProfile(duel.ChallengerID)
 	_, opponentFirst, _, _ := b.store.GetUserProfile(duel.OpponentID)
 	if challengerFirst == "" {
-		challengerFirst = "Игрок 1"
+		challengerFirst = models.MsgDuelDefaultPlayer1
 	}
 	if opponentFirst == "" {
-		opponentFirst = "Игрок 2"
+		opponentFirst = models.MsgDuelDefaultPlayer2
 	}
 
 	switch winnerNum {
@@ -251,7 +248,7 @@ func (b *Bot) judgeDuel(c tele.Context, duel *storage.Duel) {
 		}
 		log.Printf("duel judge parse failed, random winner: %d", winnerID)
 		if explanation == "" {
-			explanation = "Судья не смог решить, победитель выбран случайно."
+			explanation = models.MsgDuelRandomJudge
 		}
 	}
 
@@ -268,9 +265,7 @@ func (b *Bot) judgeDuel(c tele.Context, duel *storage.Duel) {
 		}
 	}
 
-	msg := fmt.Sprintf("Результаты дуэли!\n\n"+
-		"%s: %s\n%s: %s\n\n"+
-		"Победитель: %s\n%s",
+	msg := fmt.Sprintf(models.FmtDuelResult,
 		challengerFirst, duel.ChallengerAnswer,
 		opponentFirst, duel.OpponentAnswer,
 		winnerName, explanation)
@@ -286,7 +281,7 @@ func (b *Bot) judgeDuel(c tele.Context, duel *storage.Duel) {
 
 func (b *Bot) handleQuest(c tele.Context) error {
 	if !isGroupChat(c) {
-		return c.Send("Квесты работают только в группах.")
+		return c.Send(models.MsgQuestOnlyGroups)
 	}
 
 	chatID := c.Chat().ID
@@ -295,10 +290,10 @@ func (b *Bot) handleQuest(c tele.Context) error {
 	existing, err := b.store.GetActiveQuest(chatID)
 	if err != nil {
 		log.Printf("[%d] get active quest error: %v", chatID, err)
-		return c.Send("Что-то пошло не так.")
+		return c.Send(models.MsgQuestError)
 	}
 	if existing != nil {
-		return c.Send("Квест уже активен! Выполняй: " + existing.Quest)
+		return c.Send(models.MsgQuestActive + existing.Quest)
 	}
 
 	replyFn, stop := b.startThinking(c)
@@ -313,11 +308,11 @@ func (b *Bot) handleQuest(c tele.Context) error {
 	if err != nil {
 		stop()
 		log.Printf("[%d] create quest error: %v", chatID, err)
-		return c.Send("Не удалось создать квест.")
+		return c.Send(models.MsgQuestCreateFail)
 	}
 
 	log.Printf("[%d] quest created: %s", chatID, quest)
-	return replyFn(fmt.Sprintf("Квест!\n\n%s\n\nПервый кто выполнит — побеждает. Пишите ответ прямо в чат!", quest))
+	return replyFn(fmt.Sprintf(models.FmtQuestStart, quest))
 }
 
 func (b *Bot) handleQuestAnswer(c tele.Context) bool {
@@ -338,8 +333,8 @@ func (b *Bot) handleQuestAnswer(c tele.Context) bool {
 		return false // skip judging this message
 	}
 
-	judgePrompt := fmt.Sprintf(features.GroupQuestJudgePrompt, quest.Quest, text)
-	result, err := b.claude.Ask(context.Background(), judgePrompt, "Оцени ответ")
+	questSystemPrompt := fmt.Sprintf(features.GroupQuestJudgePrompt, quest.Quest)
+	result, err := b.claude.Ask(context.Background(), questSystemPrompt, text)
 	if err != nil {
 		log.Printf("[%d] quest judge error: %v", chatID, err)
 		return false
@@ -357,7 +352,7 @@ func (b *Bot) handleQuestAnswer(c tele.Context) bool {
 	winnerName := c.Sender().FirstName
 	log.Printf("[%d] quest completed by %s (%d)", chatID, winnerName, userID)
 
-	msg := fmt.Sprintf("Квест выполнен!\n\n%s справился первым!\n\nКвест был: %s", winnerName, quest.Quest)
+	msg := fmt.Sprintf(models.FmtQuestComplete, winnerName, quest.Quest)
 	if err := c.Send(msg); err != nil {
 		log.Printf("[%d] quest complete send error: %v", chatID, err)
 	}
@@ -377,21 +372,21 @@ func (b *Bot) handleLink(c tele.Context) error {
 			target := c.Message().ReplyTo.Sender
 			return b.processLink(c, userID, target.ID, target.FirstName)
 		}
-		return c.Send("Формат: /link (ответом на сообщение) или /link @username")
+		return c.Send(models.MsgLinkFormatReply)
 	}
 
 	username := strings.TrimPrefix(strings.TrimSpace(payload), "@")
 	if username == "" {
-		return c.Send("Формат: /link @username")
+		return c.Send(models.MsgLinkFormatUsername)
 	}
 
 	targetID, err := b.findUserByUsername(username)
 	if err != nil || targetID == 0 {
-		return c.Send("Не нашёл пользователя. Он должен хотя бы раз написать боту.")
+		return c.Send(models.MsgLinkNotFound)
 	}
 
 	if targetID == userID {
-		return c.Send("Нельзя связаться с собой. Хотя, понимаю желание.")
+		return c.Send(models.MsgLinkSelf)
 	}
 
 	_, firstName, _, _ := b.store.GetUserProfile(targetID)
@@ -409,7 +404,7 @@ func (b *Bot) processLink(c tele.Context, userID, targetID int64, targetName str
 		return c.Send("Что-то пошло не так.")
 	}
 	if existingPartner != 0 {
-		return c.Send("Ты уже связан с кем-то. Сначала /unlink.")
+		return c.Send(models.MsgLinkAlreadyLinked)
 	}
 
 	hasPending, err := b.store.GetPendingLink(targetID, userID)
@@ -421,19 +416,19 @@ func (b *Bot) processLink(c tele.Context, userID, targetID int64, targetName str
 	if hasPending {
 		if err := b.store.AcceptLink(targetID, userID); err != nil {
 			log.Printf("[%d] accept link error: %v", userID, err)
-			return c.Send("Не удалось подтвердить связь.")
+			return c.Send(models.MsgLinkConfirmFail)
 		}
 
 		senderName := c.Sender().FirstName
 		log.Printf("[%d] link confirmed with %d", userID, targetID)
 
-		notifyMsg := fmt.Sprintf("%s принял твой запрос на связь! Теперь вы связаны.", senderName)
+		notifyMsg := fmt.Sprintf(models.FmtLinkConfirmNotify, senderName)
 		recipient := &tele.User{ID: targetID}
 		if _, err := b.tg.Send(recipient, notifyMsg); err != nil {
 			log.Printf("[%d] link notify error: %v", targetID, err)
 		}
 
-		return c.Send(fmt.Sprintf("Связь с %s установлена!", targetName))
+		return c.Send(fmt.Sprintf(models.FmtLinkConfirmed, targetName))
 	}
 
 	alreadySent, err := b.store.GetPendingLink(userID, targetID)
@@ -442,25 +437,25 @@ func (b *Bot) processLink(c tele.Context, userID, targetID int64, targetName str
 		return c.Send("Что-то пошло не так.")
 	}
 	if alreadySent {
-		return c.Send("Ты уже отправил запрос. Жди подтверждения.")
+		return c.Send(models.MsgLinkAlreadySent)
 	}
 
 	if err := b.store.CreateLink(userID, targetID); err != nil {
 		log.Printf("[%d] create link error: %v", userID, err)
-		return c.Send("Не удалось создать запрос.")
+		return c.Send(models.MsgLinkCreateFail)
 	}
 
 	senderName := c.Sender().FirstName
 	log.Printf("[%d] link request sent to %d", userID, targetID)
 
-	notifyMsg := fmt.Sprintf("%s хочет связать ваши аккаунты! Напиши /link @%s чтобы подтвердить.",
+	notifyMsg := fmt.Sprintf(models.FmtLinkRequestNotify,
 		senderName, c.Sender().Username)
 	recipient := &tele.User{ID: targetID}
 	if _, err := b.tg.Send(recipient, notifyMsg); err != nil {
 		log.Printf("[%d] link request notify error: %v", targetID, err)
 	}
 
-	return c.Send(fmt.Sprintf("Запрос на связь отправлен %s. Ждём подтверждения.", targetName))
+	return c.Send(fmt.Sprintf(models.FmtLinkRequestSent, targetName))
 }
 
 func (b *Bot) handleUnlink(c tele.Context) error {
@@ -474,23 +469,23 @@ func (b *Bot) handleUnlink(c tele.Context) error {
 	}
 
 	if partnerID == 0 {
-		return c.Send("Ты ни с кем не связан.")
+		return c.Send(models.MsgUnlinkNotLinked)
 	}
 
 	if err := b.store.DeleteLink(userID, partnerID); err != nil {
 		log.Printf("[%d] delete link error: %v", userID, err)
-		return c.Send("Не удалось разорвать связь.")
+		return c.Send(models.MsgUnlinkFail)
 	}
 
 	senderName := c.Sender().FirstName
-	notifyMsg := fmt.Sprintf("%s разорвал связь.", senderName)
+	notifyMsg := fmt.Sprintf(models.FmtUnlinkNotify, senderName)
 	recipient := &tele.User{ID: partnerID}
 	if _, err := b.tg.Send(recipient, notifyMsg); err != nil {
 		log.Printf("[%d] unlink notify error: %v", partnerID, err)
 	}
 
 	log.Printf("[%d] unlinked from %d", userID, partnerID)
-	return c.Send("Связь разорвана.")
+	return c.Send(models.MsgUnlinkDone)
 }
 
 func (b *Bot) findUserByUsername(username string) (int64, error) {

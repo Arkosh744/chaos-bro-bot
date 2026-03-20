@@ -14,6 +14,7 @@ import (
 	"github.com/Arkosh744/chaos-bro-bot/internal/claude"
 	"github.com/Arkosh744/chaos-bro-bot/internal/features"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -302,7 +303,7 @@ func (s *Scheduler) sendMorningCheck() {
 	inline.Inline(rows...)
 
 	recipient := &chatRecipient{id: s.cfg.OwnerID}
-	if _, err := s.tg.Send(recipient, "Утро. Как ты от 1 до 10?", inline); err != nil {
+	if _, err := s.tg.Send(recipient, models.MsgMoodMorning, inline); err != nil {
 		log.Printf("morning check send: %v", err)
 	}
 
@@ -320,7 +321,7 @@ func (s *Scheduler) sendMorningCheck() {
 		}
 	}
 	if profileCtx == "" {
-		profileCtx = "Профиль пока не заполнен."
+		profileCtx = models.MsgProfileNotFilled
 	}
 
 	prompt := fmt.Sprintf(features.MorningRitualPrompt, profileCtx)
@@ -350,7 +351,7 @@ func (s *Scheduler) sendMorningCheck() {
 			if err := s.store.SaveWeeklyChallenge(s.cfg.OwnerID, challengeText, weekStart); err != nil {
 				log.Printf("[%d] save weekly challenge error: %v", s.cfg.OwnerID, err)
 			} else {
-				msg := fmt.Sprintf("🏋️ Челлендж недели:\n\n%s\n\n/challenge — прогресс\n/challenge done — отметить день", challengeText)
+				msg := fmt.Sprintf(models.FmtChallengeNew, challengeText)
 				if _, err := s.tg.Send(recipient, msg); err != nil {
 					log.Printf("[%d] send weekly challenge error: %v", s.cfg.OwnerID, err)
 				}
@@ -368,7 +369,7 @@ func (s *Scheduler) sendMorningCheck() {
 			for i := 0; i < 7-completedDays; i++ {
 				progress += "⬜"
 			}
-			reminder := fmt.Sprintf("Не забудь про челлендж: %s\n%s (%d/7) /challenge done", challenge, progress, completedDays)
+			reminder := fmt.Sprintf(models.FmtChallengeReminder, challenge, progress, completedDays)
 			if _, err := s.tg.Send(recipient, reminder); err != nil {
 				log.Printf("[%d] send challenge reminder error: %v", s.cfg.OwnerID, err)
 			}
@@ -415,10 +416,10 @@ func (s *Scheduler) checkLinkedUsersMood() {
 		_, nameA, _, _ := s.store.GetUserProfile(link.UserA)
 		_, nameB, _, _ := s.store.GetUserProfile(link.UserB)
 		if nameA == "" {
-			nameA = "Твой связанный"
+			nameA = models.MsgLinkedDefaultName
 		}
 		if nameB == "" {
-			nameB = "Твой связанный"
+			nameB = models.MsgLinkedDefaultName
 		}
 
 		// Both have mood data today — compare and notify
@@ -430,13 +431,11 @@ func (s *Scheduler) checkLinkedUsersMood() {
 
 		switch {
 		case moodA == moodB:
-			msg = fmt.Sprintf("Ты и %s оба сегодня на %d/10. Совпадение? Может поговорите?", nameB, moodA)
+			msg = fmt.Sprintf(models.FmtLinkedSameMood, nameB, moodA)
 		case diff <= 2:
-			msg = fmt.Sprintf("Ты %d/10, а %s — %d/10. Почти на одной волне.", moodA, nameB, moodB)
-		case moodA < moodB:
-			msg = fmt.Sprintf("У тебя %d/10, а у %s — %d/10. Может стоит списаться?", moodA, nameB, moodB)
+			msg = fmt.Sprintf(models.FmtLinkedCloseMood, moodA, nameB, moodB)
 		default:
-			msg = fmt.Sprintf("У тебя %d/10, а у %s — %d/10. Может стоит списаться?", moodA, nameB, moodB)
+			msg = fmt.Sprintf(models.FmtLinkedDiffMood, moodA, nameB, moodB)
 		}
 
 		recipientA := &chatRecipient{id: link.UserA}
@@ -448,11 +447,11 @@ func (s *Scheduler) checkLinkedUsersMood() {
 		var msgB string
 		switch {
 		case moodA == moodB:
-			msgB = fmt.Sprintf("Ты и %s оба сегодня на %d/10. Совпадение? Может поговорите?", nameA, moodB)
+			msgB = fmt.Sprintf(models.FmtLinkedSameMood, nameA, moodB)
 		case diff <= 2:
-			msgB = fmt.Sprintf("Ты %d/10, а %s — %d/10. Почти на одной волне.", moodB, nameA, moodA)
+			msgB = fmt.Sprintf(models.FmtLinkedCloseMood, moodB, nameA, moodA)
 		default:
-			msgB = fmt.Sprintf("У тебя %d/10, а у %s — %d/10. Может стоит списаться?", moodB, nameA, moodA)
+			msgB = fmt.Sprintf(models.FmtLinkedDiffMood, moodB, nameA, moodA)
 		}
 
 		recipientB := &chatRecipient{id: link.UserB}
@@ -496,13 +495,13 @@ func (s *Scheduler) sendEveningCheck() {
 
 	inline := &tele.ReplyMarkup{}
 	inline.Inline(inline.Row(
-		inline.Data("\U0001F60A Что хорошего", "reflect_good"),
-		inline.Data("\U0001F624 Что бесило", "reflect_bad"),
-		inline.Data("🎯 Что завтра", "reflect_tomorrow"),
+		inline.Data(models.BtnReflectGoodLabel, "reflect_good"),
+		inline.Data(models.BtnReflectBadLabel, "reflect_bad"),
+		inline.Data(models.BtnReflectTmrwLabel, "reflect_tomorrow"),
 	))
 
 	recipient := &chatRecipient{id: s.cfg.OwnerID}
-	if _, err := s.tg.Send(recipient, "\U0001F319 Вечерний чек. Выбери:", inline); err != nil {
+	if _, err := s.tg.Send(recipient, models.MsgEveningCheck, inline); err != nil {
 		log.Printf("evening check send: %v", err)
 	}
 }
@@ -519,7 +518,7 @@ func (s *Scheduler) deliverCapsules() {
 	}
 
 	for _, cap := range capsules {
-		msg := fmt.Sprintf("⏳ Капсула из прошлого:\n\n%s", cap.Text)
+		msg := fmt.Sprintf(models.FmtCapsuleDelivered, cap.Text)
 		recipient := &chatRecipient{id: cap.UserID}
 		if _, err := s.tg.Send(recipient, msg); err != nil {
 			log.Printf("capsule send to %d: %v", cap.UserID, err)
@@ -583,7 +582,7 @@ func (s *Scheduler) deliverReminders() {
 	}
 
 	for _, r := range reminders {
-		msg := fmt.Sprintf("⏰ Эй! Ты просил напомнить: %s", r.Text)
+		msg := fmt.Sprintf(models.FmtRemindDeliver, r.Text)
 		recipient := &chatRecipient{id: r.UserID}
 		if _, err := s.tg.Send(recipient, msg); err != nil {
 			log.Printf("reminder send to %d: %v", r.UserID, err)
@@ -669,8 +668,8 @@ func (s *Scheduler) sendHabitReminders() {
 			}
 
 			inline := &tele.ReplyMarkup{}
-			btnDone := inline.Data("\u2705 Сделал", fmt.Sprintf("habit_done_%d", idx))
-			btnSkip := inline.Data("\u274C Нет", fmt.Sprintf("habit_skip_%d", idx))
+			btnDone := inline.Data(models.BtnHabitDoneLabel, fmt.Sprintf("habit_done_%d", idx))
+			btnSkip := inline.Data(models.BtnHabitSkipLabel, fmt.Sprintf("habit_skip_%d", idx))
 			inline.Inline(inline.Row(btnDone, btnSkip))
 
 			msg := fmt.Sprintf("Напоминание: %s", uh.Name)
@@ -736,7 +735,7 @@ func (s *Scheduler) checkSleepWarnings() {
 		}
 
 		if lateCount >= 3 {
-			msg := fmt.Sprintf("Ты опять не спишь в %s. Третий раз за неделю. Ложись.", currentHour)
+			msg := fmt.Sprintf(models.FmtNightOwlWarning, currentHour)
 			recipient := &chatRecipient{id: u.UserID}
 			if _, err := s.tg.Send(recipient, msg); err != nil {
 				log.Printf("sleep warning send to %d: %v", u.UserID, err)
@@ -758,7 +757,7 @@ func (s *Scheduler) sendDigest() {
 	}
 
 	recipient := &chatRecipient{id: s.cfg.OwnerID}
-	if _, err := s.tg.Send(recipient, "📋 Дайджест недели:\n\n"+digest); err != nil {
+	if _, err := s.tg.Send(recipient, models.MsgDigestPrefix+digest); err != nil {
 		log.Printf("digest send: %v", err)
 	}
 	log.Printf("weekly digest sent")

@@ -13,21 +13,13 @@ import (
 	"time"
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/features"
-	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
 	"github.com/Arkosh744/chaos-bro-bot/internal/metrics"
+	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 	tele "gopkg.in/telebot.v4"
 )
 
-var tricksterNames = []string{
-	"Локи", "Гримшоу Пепельный", "Шут Трёхликий", "Морфей с Района",
-	"Джинн Кривое Зеркало", "Пак Лунный", "Рейнеке-лис",
-	"Коловрат Бессонный", "Чеширский Бродяга", "Робин Безголовый",
-	"Ананси Восьмирукий", "Барон Самди", "Койот Пыльный",
-	"Гермес Подъездный", "Одиссей Диванный", "Мерлин Бухой",
-	"Фенрир Домашний", "Тиль Уленшпигель", "Джокер из Пятёрки",
-	"Голлум с Авито", "Добби Свободный", "Геральт из Пятёрочки",
-	"Данте с Районной", "Кратос Уставший", "Довакин Ленивый",
-}
+var tricksterNames = models.TricksterNames
 
 // isGroupChat returns true if the message is from a group or supergroup chat.
 func isGroupChat(c tele.Context) bool {
@@ -70,7 +62,7 @@ func (b *Bot) checkAndSendAchievements(c tele.Context, event string) {
 func (b *Bot) claudeReply(c tele.Context, ask func() (string, error), prefix string) error {
 	userID := c.Sender().ID
 	if !b.checkRateLimit(userID) {
-		return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+		return c.Send(models.MsgRateLimit, b.replyOpts(c))
 	}
 
 	// Save the user's trigger (command text or button text)
@@ -82,6 +74,7 @@ func (b *Bot) claudeReply(c tele.Context, ask func() (string, error), prefix str
 		log.Printf("[%d] save trigger error: %v", userID, err)
 	}
 
+	b.incrementRateLimit(userID)
 	replyFn, stop := b.startThinking(c)
 	result, err := ask()
 	if err != nil {
@@ -89,7 +82,6 @@ func (b *Bot) claudeReply(c tele.Context, ask func() (string, error), prefix str
 		log.Printf("[%d] claude error: %v", userID, err)
 		return c.Send(prefix+features.RandomFallback(), menu)
 	}
-	b.incrementRateLimit(userID)
 
 	// Save bot reply
 	if _, err := b.store.SaveMessage(userID, "bot", prefix+result); err != nil {
@@ -103,7 +95,7 @@ func (b *Bot) claudeReply(c tele.Context, ask func() (string, error), prefix str
 func (b *Bot) claudeReplyWithRepeat(c tele.Context, ask func() (string, error), prefix, repeatCallback string) error {
 	userID := c.Sender().ID
 	if !b.checkRateLimit(userID) {
-		return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+		return c.Send(models.MsgRateLimit, b.replyOpts(c))
 	}
 
 	trigger := c.Text()
@@ -114,6 +106,7 @@ func (b *Bot) claudeReplyWithRepeat(c tele.Context, ask func() (string, error), 
 		log.Printf("[%d] save trigger error: %v", userID, err)
 	}
 
+	b.incrementRateLimit(userID)
 	replyFn, stop := b.startThinking(c)
 	result, err := ask()
 	if err != nil {
@@ -121,14 +114,13 @@ func (b *Bot) claudeReplyWithRepeat(c tele.Context, ask func() (string, error), 
 		log.Printf("[%d] claude error: %v", userID, err)
 		return c.Send(prefix+features.RandomFallback(), menu)
 	}
-	b.incrementRateLimit(userID)
 
 	if _, err := b.store.SaveMessage(userID, "bot", prefix+result); err != nil {
 		log.Printf("[%d] save claude reply error: %v", userID, err)
 	}
 
 	inline := &tele.ReplyMarkup{}
-	btn := inline.Data("\U0001F504 Ещё", repeatCallback)
+	btn := inline.Data(models.BtnRepeatLabel, repeatCallback)
 	inline.Inline(inline.Row(btn))
 
 	return replyFn(prefix+result, menu, inline)
@@ -141,10 +133,10 @@ func (b *Bot) handleAchievements(c tele.Context) error {
 		return c.Send(features.RandomFallback(), menu)
 	}
 	if len(names) == 0 {
-		return c.Send("У тебя пока нет ачивок. Давай, начинай играть.", menu)
+		return c.Send(models.MsgNoAchievements, menu)
 	}
 
-	msg := "\U0001F3C6 Твои ачивки:\n\n"
+	msg := models.MsgAchievementsHeader
 	unlockedSet := make(map[string]bool, len(names))
 	for _, name := range names {
 		unlockedSet[name] = true
@@ -193,7 +185,7 @@ func (b *Bot) handleAchievements(c tele.Context) error {
 	}
 
 	if len(progress) > 0 {
-		msg += "\nБлижайшие:\n"
+		msg += models.MsgAchievementsNext
 		for _, p := range progress {
 			msg += fmt.Sprintf("\U0001F512 %s %s (%d/%d)\n", p.emoji, p.achName, p.current, p.target)
 		}
@@ -207,9 +199,10 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 	log.Printf("[%d] photo", userID)
 
 	if !b.checkRateLimit(userID) {
-		return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+		return c.Send(models.MsgRateLimit, b.replyOpts(c))
 	}
 
+	b.incrementRateLimit(userID)
 	replyFn, stop := b.startThinking(c)
 
 	caption := c.Message().Caption
@@ -225,7 +218,6 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 		log.Printf("[%d] photo reply error: %v", userID, err)
 		return c.Send(features.RandomFallback(), menu)
 	}
-	b.incrementRateLimit(userID)
 
 	if _, err := b.store.SaveMessage(userID, "user", "[\U0001F4F7] "+prompt); err != nil {
 		log.Printf("[%d] save photo msg error: %v", userID, err)
@@ -240,58 +232,7 @@ func (b *Bot) handlePhoto(c tele.Context) error {
 }
 
 func (b *Bot) handleHelp(c tele.Context) error {
-	help := `🎭 *Команды Трикстера:*
-
-*Кнопки:*
-👁 Очнись — техника заземления
-🎲 Ебани куба — хаос-задание
-🔮 Судьба — предсказание
-🎱 Кинь кости — рандомайзер решений
-🔥 Зажарь — roast на основе профиля
-🧙 Мудрость — абсурдная мудрость
-⭐ Гороскоп — антигороскоп дня
-📊 Настроение — график за 7 дней
-🪞 Зеркало — копирует твой стиль (10 сообщ.)
-🫁 Дыши — дыхательный таймер
-
-*Команды:*
-/trickster — представиться в группе
-/profile — твой профиль
-/level — уровень отношений
-/achievements — ачивки
-/top — таблица лидеров
-/silence — режим эмоджи (24ч)
-/mirror — зеркало стиля (10 сообщ.)
-/meditate — guided медитация
-/truth — раскрыть сегодняшнюю ложь бота
-/capsule N текст — капсула времени
-/remind 30m текст — напоминание
-/streak — серия дней подряд
-/habit — трекер привычек
-/sleep — анализ сна за неделю
-/playlist — плейлист под настроение
-/future — письмо от тебя из будущего
-/challenge — недельный челлендж
-/anon текст — анонимное сообщение (группы)
-/story — интерактивная история
-/game — мини-игры (угадайка, тривиа, данетки)
-/voice текст — озвучить текст голосом
-/help — эта справка
-
-*Социальные (группы):*
-/duel — вызвать на дуэль (ответом на сообщение)
-/quest — квест для группы
-/link @user — связать аккаунты
-/unlink — разорвать связь
-
-*Секретные (streak):*
-/roastme — бот roast'ит себя (14д)
-/serious — серьёзный ответ (30д)
-
-*Меню:* ➡️ Ещё — доп. кнопки, ⬅️ Назад — главное меню
-
-*Просто пиши* — трикстер ответит с характером`
-	return c.Send(help, menu, tele.ModeMarkdown)
+	return c.Send(models.MsgHelp, menu, tele.ModeMarkdown)
 }
 
 func (b *Bot) handleStart(c tele.Context) error {
@@ -306,25 +247,25 @@ func (b *Bot) handleStart(c tele.Context) error {
 		level := features.GetLevel(msgCount)
 		achievements, _ := b.store.GetAchievements(userID)
 
-		status := fmt.Sprintf("С возвращением! %s %s (ур. %d), streak: %d дн., ачивок: %d",
+		status := fmt.Sprintf(models.FmtStartReturning,
 			level.Emoji, level.Name, level.Level, streak, len(achievements))
 		return c.Send(status, menu)
 	}
 
 	name := tricksterNames[rand.Intn(len(tricksterNames))]
-	greeting := fmt.Sprintf("Йо. Я *%s*.", name)
+	greeting := fmt.Sprintf(models.FmtStartGreeting, name)
 	if ego := features.GetAlterEgo(); ego != nil {
-		greeting = fmt.Sprintf("Йо. Сегодня я *%s*. Режим: _%s_.", name, ego.Name)
+		greeting = fmt.Sprintf(models.FmtStartAlterEgo, name, ego.Name)
 	}
 
 	// First message: intro
-	if err := c.Send(greeting+"\n\nЯ дерзкий друг-трикстер. Не коуч, не AI, не мамка.\nЖми кнопки или просто пиши мне. /help — все команды.", menu, tele.ModeMarkdown); err != nil {
+	if err := c.Send(greeting+models.MsgStartIntro, menu, tele.ModeMarkdown); err != nil {
 		log.Printf("[%d] start send error: %v", userID, err)
 	}
 
 	// Second message: a welcome grounding technique
 	technique := features.RandomGrounding()
-	return c.Send("👁 Вот тебе для начала:\n\n"+technique, menu)
+	return c.Send(models.MsgStartGrounding+technique, menu)
 }
 
 func (b *Bot) saveUserProfile(c tele.Context) {
@@ -372,7 +313,7 @@ func (b *Bot) handleChaos(c tele.Context) error {
 	}
 
 	if !b.checkRateLimit(userID) {
-		return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+		return c.Send(models.MsgRateLimit, b.replyOpts(c))
 	}
 
 	reply, stop := b.startThinking(c)
@@ -410,7 +351,7 @@ func (b *Bot) handleChaosMore(c tele.Context) error {
 
 func (b *Bot) handleRandomize(c tele.Context) error {
 	log.Printf("[%d] randomize", c.Sender().ID)
-	return c.Send("Окей, кидай вопрос. Я решу за тебя.", menu)
+	return c.Send(models.MsgRandomizerPrompt, menu)
 }
 
 func (b *Bot) handlePrediction(c tele.Context) error {
@@ -439,7 +380,7 @@ func (b *Bot) handleSilence(c tele.Context) error {
 			log.Printf("[%d] reset silence mode error: %v", userID, err)
 		}
 		log.Printf("[%d] silence mode deactivated, had %dh remaining", userID, remaining)
-		return c.Send(fmt.Sprintf("\U0001F50A Молчание снято. Оставалось %dч.", remaining), menu)
+		return c.Send(fmt.Sprintf(models.FmtSilenceOff, remaining), menu)
 	}
 
 	// Activate silence mode for 24 hours
@@ -450,7 +391,7 @@ func (b *Bot) handleSilence(c tele.Context) error {
 	}
 
 	log.Printf("[%d] silence mode activated until %s", userID, until.Format(time.RFC3339))
-	return c.Send("\U0001F92B", menu)
+	return c.Send(models.MsgSilenceOn, menu)
 }
 
 func (b *Bot) handleMirror(c tele.Context) error {
@@ -463,7 +404,7 @@ func (b *Bot) handleMirror(c tele.Context) error {
 		if err := b.store.SetCounter(userID, "mirror_remaining", 0); err != nil {
 			log.Printf("[%d] reset mirror mode error: %v", userID, err)
 		}
-		return c.Send("\U0001FA9E Зеркало выключено.", menu)
+		return c.Send(models.MsgMirrorOff, menu)
 	}
 
 	if err := b.store.SetCounter(userID, "mirror_remaining", 10); err != nil {
@@ -471,13 +412,17 @@ func (b *Bot) handleMirror(c tele.Context) error {
 		return c.Send(features.RandomFallback(), menu)
 	}
 
-	return c.Send("\U0001FA9E Зеркало активировано. Следующие 10 сообщений я буду говорить как ты.", menu)
+	return c.Send(models.MsgMirrorOn, menu)
 }
 
 func (b *Bot) handleText(c tele.Context) error {
 	text := c.Text()
 	userID := c.Sender().ID
-	log.Printf("[%d] text: %s", userID, text)
+	logText := text
+	if len(logText) > 50 {
+		logText = logText[:50] + "..."
+	}
+	log.Printf("[%d] text: %s", userID, logText)
 	metrics.IncrementMessages()
 	metrics.TrackActiveUser(userID)
 	defer b.checkAndSendAchievements(c, "message")
@@ -523,6 +468,11 @@ func (b *Bot) handleText(c tele.Context) error {
 			text = "Привет"
 		}
 
+		// Rate limit for group chat Claude calls
+		if !b.checkRateLimit(c.Sender().ID) {
+			return nil // silently ignore in groups
+		}
+
 		// For group messages, use simplified response flow
 		ctx := b.buildGroupContext(c)
 		replyFn, stop := b.startThinking(c)
@@ -555,13 +505,13 @@ func (b *Bot) handleText(c tele.Context) error {
 			if _, ok := features.CategoryLabels[category]; ok && fact != "" {
 				if err := b.store.SaveFact(userID, category, fact); err != nil {
 					log.Printf("[%d] save profile fact error: %v", userID, err)
-					return c.Send("Не удалось сохранить. Попробуй ещё раз.", menu)
+					return c.Send(models.MsgProfileSaveError, menu)
 				}
 				label := features.CategoryLabels[category]
-				return c.Send(fmt.Sprintf("\u2705 Обновлено: %s: %s", label, fact), menu)
+				return c.Send(fmt.Sprintf(models.FmtProfileUpdated, label, fact), menu)
 			}
 		}
-		return c.Send("Неверный формат. Используй: категория: значение\nПример: job: Go разработчик", menu)
+		return c.Send(models.MsgProfileFormatError, menu)
 	}
 
 	// Active game check: dispatch to game handler before main logic
@@ -589,7 +539,7 @@ func (b *Bot) handleText(c tele.Context) error {
 		}
 
 		log.Printf("[%d] reflection saved: %s", userID, category)
-		return c.Send("\U0001F4DD Записал. Кабан одобряет. \U0001F417", menu)
+		return c.Send(models.MsgReflectionSaved, menu)
 	}
 
 	// Silence mode: respond only with emojis
@@ -597,17 +547,17 @@ func (b *Bot) handleText(c tele.Context) error {
 		log.Printf("[%d] silence mode active", userID)
 
 		if !b.checkRateLimit(userID) {
-			return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+			return c.Send(models.MsgRateLimit, b.replyOpts(c))
 		}
 
+		b.incrementRateLimit(userID)
 		replyFn, stop := b.startThinking(c)
 		reply, err := b.claude.Ask(context.Background(), features.SilencePrompt, text)
 		if err != nil {
 			stop()
 			log.Printf("[%d] silence reply error: %v", userID, err)
-			return c.Send("\U0001F636", menu)
+			return c.Send(models.MsgSilenceFallback, menu)
 		}
-		b.incrementRateLimit(userID)
 
 		if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
 			log.Printf("[%d] save silence reply error: %v", userID, err)
@@ -621,8 +571,10 @@ func (b *Bot) handleText(c tele.Context) error {
 		log.Printf("[%d] mirror mode active, remaining: %d", userID, mirrorRemaining)
 
 		if !b.checkRateLimit(userID) {
-			return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+			return c.Send(models.MsgRateLimit, b.replyOpts(c))
 		}
+
+		b.incrementRateLimit(userID)
 
 		newVal, err := b.store.DecrementCounter(userID, "mirror_remaining")
 		if err != nil {
@@ -650,14 +602,13 @@ func (b *Bot) handleText(c tele.Context) error {
 			log.Printf("[%d] mirror reply error: %v", userID, err)
 			return c.Send(features.RandomFallback(), menu)
 		}
-		b.incrementRateLimit(userID)
 
 		if newVal == 0 {
-			reply = reply + "\n\n\U0001FA9E Зеркало выключено. Я снова я."
+			reply = reply + models.MsgMirrorDone
 		} else if newVal == 5 {
-			reply = reply + "\n\n_\U0001FA9E Половина — осталось 5_"
+			reply = reply + models.MsgMirrorHalf
 		} else if newVal == 1 {
-			reply = reply + "\n\n_\U0001FA9E Последнее зеркальное сообщение!_"
+			reply = reply + models.MsgMirrorLast
 		}
 
 		if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
@@ -680,10 +631,10 @@ func (b *Bot) handleText(c tele.Context) error {
 		} else {
 			// Not a valid choice — abort story
 			b.store.SetCounter(userID, "story_active", 0)
-			if _, err := b.store.SaveMessage(userID, "bot", "История прервана. Напиши /story чтобы начать новую."); err != nil {
+			if _, err := b.store.SaveMessage(userID, "bot", models.MsgStoryAbort); err != nil {
 				log.Printf("[%d] save story abort error: %v", userID, err)
 			}
-			return c.Send("История прервана. Напиши /story чтобы начать новую.", menu)
+			return c.Send(models.MsgStoryAbort, menu)
 		}
 	}
 
@@ -733,8 +684,10 @@ func (b *Bot) handleText(c tele.Context) error {
 
 	// Rate limit: max Claude calls per hour per user
 	if !b.checkRateLimit(userID) {
-		return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+		return c.Send(models.MsgRateLimit, b.replyOpts(c))
 	}
+
+	b.incrementRateLimit(userID)
 
 	// Bargain: configurable chance (default 20%) bot demands something before answering
 	bargainChance := b.store.GetRuntimeConfigInt("bargain_chance", 20)
@@ -760,7 +713,7 @@ func (b *Bot) handleText(c tele.Context) error {
 			log.Printf("[%d] randomizer error: %v", userID, err)
 			return c.Send(features.RandomFallback(), menu)
 		}
-		reply = "🎰 Вижу вопрос — решаю за тебя:\n\n" + reply
+		reply = models.MsgRandomizerPrefix + reply
 	} else {
 		reply, err = features.TricksterReply(context.Background(), b.claude, text, userCtx)
 		if err != nil {
@@ -769,7 +722,6 @@ func (b *Bot) handleText(c tele.Context) error {
 			return c.Send(features.RandomFallback(), menu)
 		}
 	}
-	b.incrementRateLimit(userID)
 
 	// Contextual recall: ~15% chance to add a memory reference
 	if features.ShouldRecall() {
@@ -841,7 +793,7 @@ func (b *Bot) handleText(c tele.Context) error {
 		// First-time TTS warning
 		warned, _ := b.store.GetCounter(userID, "tts_warned")
 		if warned == 0 {
-			_ = c.Send("🔊 _Иногда буду отвечать голосом. Наушники наготове._", menu, tele.ModeMarkdown)
+			_ = c.Send(models.MsgTTSWarning, menu, tele.ModeMarkdown)
 			b.store.SetCounter(userID, "tts_warned", 1)
 		}
 
@@ -907,21 +859,7 @@ func (b *Bot) checkDailyReward(c tele.Context) {
 	}
 
 	b.store.SetCounter(userID, key, 1)
-	rewards := []string{
-		"\U0001F381 Ежедневная награда: +1 к удаче. Действует до полуночи.",
-		"\U0001F381 Дроп дня: секретное знание — кошки спят 70% жизни.",
-		"\U0001F381 Бонус за вход: невидимый щит от хуйни.",
-		"\U0001F381 Награда дня: +3 к харизме. Используй с умом.",
-		"\U0001F381 Ежедневный лут: рецепт идеального дня — кофе, музыка, ноль дедлайнов.",
-		"\U0001F381 Дроп: секретный факт — осьминоги имеют три сердца.",
-		"\U0001F381 Бонус: +5 к самоиронии. Тебе пригодится.",
-		"\U0001F381 Награда: невидимая корона. Носи с достоинством.",
-		"\U0001F381 Дроп дня: право послать одного человека. Мысленно.",
-		"\U0001F381 Ежедневный бонус: временный иммунитет к понедельникам.",
-		"\U0001F381 Лут: загадочный свиток с текстом 'попей воды'.",
-		"\U0001F381 Награда дня: +1 к мудрости. Или это была иллюзия?",
-	}
-	reward := rewards[rand.Intn(len(rewards))]
+	reward := models.DailyRewards[rand.Intn(len(models.DailyRewards))]
 	if err := c.Send(reward, menu); err != nil {
 		log.Printf("[%d] daily reward send error: %v", userID, err)
 	}
@@ -937,18 +875,8 @@ func (b *Bot) maybeSuggestFeature(c tele.Context) {
 		return
 	}
 
-	suggestions := []string{
-		"\U0001F4A1 Кстати, попробуй /story — расскажу интерактивную историю.",
-		"\U0001F4A1 Знаешь про /habit? Могу трекать привычки.",
-		"\U0001F4A1 Попробуй /playlist — подберу музыку под настроение.",
-		"\U0001F4A1 /sleep покажет анализ твоего сна.",
-		"\U0001F4A1 /challenge — недельный челлендж. Попробуй.",
-		"\U0001F4A1 /meditate — мини-медитация прямо тут.",
-		"\U0001F4A1 Если грустно — /future. Получишь письмо от себя из будущего.",
-	}
-
 	b.store.SetCounter(userID, key, 1)
-	if err := c.Send(suggestions[rand.Intn(len(suggestions))], menu); err != nil {
+	if err := c.Send(models.FeatureSuggestions[rand.Intn(len(models.FeatureSuggestions))], menu); err != nil {
 		log.Printf("[%d] suggestion send error: %v", userID, err)
 	}
 }
@@ -974,7 +902,7 @@ func (b *Bot) checkMoodDrop(userID int64) {
 	previousAvg := float64(previousSum) / 3.0
 
 	if previousAvg-recentAvg >= 3.0 {
-		if _, err := b.tg.Send(&tele.User{ID: userID}, "Эй, я заметил что ты как-то сдулся. Если хочешь поговорить — я тут. А нет — ну и ладно. \U0001F417"); err != nil {
+		if _, err := b.tg.Send(&tele.User{ID: userID}, models.MsgMoodDrop); err != nil {
 			log.Printf("[%d] mood drop send error: %v", userID, err)
 		}
 	}
@@ -985,12 +913,12 @@ func (b *Bot) handleVoiceOut(c tele.Context) error {
 	log.Printf("[%d] /voice", userID)
 
 	if b.tts == nil {
-		return c.Send("TTS not installed. Need edge-tts: pip install edge-tts", menu)
+		return c.Send(models.MsgTTSNotInstalled, menu)
 	}
 
 	payload := c.Message().Payload
 	if payload == "" {
-		payload = "\u041f\u0440\u0438\u0432\u0435\u0442, \u044f \u0442\u0440\u0438\u043a\u0441\u0442\u0435\u0440. \u0418 \u044f \u0443\u043c\u0435\u044e \u0433\u043e\u0432\u043e\u0440\u0438\u0442\u044c."
+		payload = models.MsgTTSDefault
 	}
 
 	_, stop := b.startThinking(c)
@@ -999,7 +927,7 @@ func (b *Bot) handleVoiceOut(c tele.Context) error {
 	if err != nil {
 		stop()
 		log.Printf("[%d] tts error: %v", userID, err)
-		return c.Send("\u041d\u0435 \u043f\u043e\u043b\u0443\u0447\u0438\u043b\u043e\u0441\u044c \u043e\u0437\u0432\u0443\u0447\u0438\u0442\u044c. "+features.RandomFallback(), menu)
+		return c.Send(models.MsgTTSFail+features.RandomFallback(), menu)
 	}
 	defer os.Remove(path)
 
@@ -1015,11 +943,11 @@ func (b *Bot) handleVoice(c tele.Context) error {
 	defer b.checkAndSendAchievements(c, "voice")
 
 	if b.whisper == nil {
-		return c.Send("Голосовые не настроены. Нужен Groq API ключ.", menu)
+		return c.Send(models.MsgVoiceNotConfigured, menu)
 	}
 
 	if !b.checkRateLimit(userID) {
-		return c.Send("Ты слишком много пишешь. Отдохни часок. \U0001F417", b.replyOpts(c))
+		return c.Send(models.MsgRateLimit, b.replyOpts(c))
 	}
 
 	voice := c.Message().Voice
@@ -1027,6 +955,13 @@ func (b *Bot) handleVoice(c tele.Context) error {
 		return nil
 	}
 
+	// SEC-015: Limit voice message size to prevent OOM
+	const maxVoiceSize = 5 * 1024 * 1024 // 5MB
+	if voice.FileSize > maxVoiceSize {
+		return c.Send(models.MsgVoiceTooLarge, menu)
+	}
+
+	b.incrementRateLimit(userID)
 	replyFn, stop := b.startThinking(c)
 
 	file, err := b.tg.FileByID(voice.FileID)
@@ -1044,7 +979,7 @@ func (b *Bot) handleVoice(c tele.Context) error {
 	}
 	defer reader.Close()
 
-	audioData, err := io.ReadAll(reader)
+	audioData, err := io.ReadAll(io.LimitReader(reader, maxVoiceSize))
 	if err != nil {
 		stop()
 		log.Printf("[%d] voice read error: %v", userID, err)
@@ -1055,10 +990,14 @@ func (b *Bot) handleVoice(c tele.Context) error {
 	if err != nil {
 		stop()
 		log.Printf("[%d] whisper error: %v", userID, err)
-		return c.Send("Не расслышал. Попробуй ещё раз или напиши текстом.", menu)
+		return c.Send(models.MsgVoiceNotHeard, menu)
 	}
 
-	log.Printf("[%d] transcribed: %s", userID, text)
+	logText := text
+	if len(logText) > 50 {
+		logText = logText[:50] + "..."
+	}
+	log.Printf("[%d] transcribed: %s", userID, logText)
 
 	if _, err := b.store.SaveMessage(userID, "user", "[voice] "+text); err != nil {
 		log.Printf("[%d] save voice message error: %v", userID, err)
@@ -1072,7 +1011,6 @@ func (b *Bot) handleVoice(c tele.Context) error {
 		log.Printf("[%d] trickster error: %v", userID, err)
 		return c.Send(features.RandomFallback(), menu)
 	}
-	b.incrementRateLimit(userID)
 
 	if _, err := b.store.SaveMessage(userID, "bot", reply); err != nil {
 		log.Printf("[%d] save bot reply error: %v", userID, err)
@@ -1087,9 +1025,9 @@ func (b *Bot) handleBreathing(c tele.Context) error {
 	log.Printf("[%d] breathing", c.Sender().ID)
 
 	// Send WITHOUT reply keyboard — Telegram blocks Edit on messages with ReplyMarkup
-	msg, err := b.tg.Send(c.Recipient(), "\U0001FAC1 Приготовься...")
+	msg, err := b.tg.Send(c.Recipient(), models.MsgBreathingStart)
 	if err != nil {
-		return c.Send("Не получилось запустить таймер. "+features.RandomFallback(), menu)
+		return c.Send(models.MsgBreathingFail+features.RandomFallback(), menu)
 	}
 
 	go features.RunBreathing(b.tg, msg, func() {
@@ -1102,9 +1040,9 @@ func (b *Bot) handleBreathing(c tele.Context) error {
 func (b *Bot) handleMeditate(c tele.Context) error {
 	log.Printf("[%d] /meditate", c.Sender().ID)
 
-	msg, err := b.tg.Send(c.Recipient(), "🧘 Приготовься к медитации...")
+	msg, err := b.tg.Send(c.Recipient(), models.MsgMeditateStart)
 	if err != nil {
-		return c.Send("Не получилось. "+features.RandomFallback(), menu)
+		return c.Send(models.MsgMeditateFail+features.RandomFallback(), menu)
 	}
 
 	go features.RunMeditation(b.tg, msg, nil)
@@ -1118,18 +1056,18 @@ func (b *Bot) handleCapsule(c tele.Context) error {
 	log.Printf("[%d] capsule: %s", userID, text)
 
 	if text == "" {
-		return c.Send("Формат: /capsule 7 твоё сообщение\nЧисло = через сколько дней доставить.", menu)
+		return c.Send(models.MsgCapsuleFormat, menu)
 	}
 
 	// Parse: first word is number of days, rest is text
 	parts := strings.SplitN(text, " ", 2)
 	if len(parts) < 2 {
-		return c.Send("Формат: /capsule 7 привет из прошлого", menu)
+		return c.Send(models.MsgCapsuleFormatShort, menu)
 	}
 
 	days := 0
 	if _, err := fmt.Sscanf(parts[0], "%d", &days); err != nil || days < 1 || days > 365 {
-		return c.Send("Дней от 1 до 365. Пример: /capsule 30 привет из прошлого", menu)
+		return c.Send(models.MsgCapsuleDaysRange, menu)
 	}
 
 	deliverAt := time.Now().AddDate(0, 0, days)
@@ -1140,21 +1078,10 @@ func (b *Bot) handleCapsule(c tele.Context) error {
 
 	b.checkAndSendAchievements(c, "capsule")
 
-	return c.Send(fmt.Sprintf("\u231B Записал. Доставлю через %d дн. Ты забудешь, а я — нет.", days), menu)
+	return c.Send(fmt.Sprintf(models.FmtCapsuleSaved, days), menu)
 }
 
-var moodReplies = map[int][]string{
-	1:  {"Ого, жёстко. Ну, день только начался.", "Хуже быть не может — значит дальше только вверх. Или нет.", "Единица. Обнять бы тебя, но я бот.", "Дно. Но с дна есть только один путь — вверх. Теоретически."},
-	2:  {"Два из десяти? Бывало и лучше, а?", "Ладно, хотя бы честно.", "Двойка. Ну, хотя бы не единица.", "Два — это 'выжил, но зачем'. Знакомо."},
-	3:  {"Три — это 'мог бы и не просыпаться'. Понимаю.", "Бывает. Кофе уже пил?", "Тройка. Ещё немного и будет терпимо.", "Три балла. Мрачно, но хотя бы честно."},
-	4:  {"Четвёрка. Не дно, но близко. Держись.", "Могло быть хуже. Могло быть и лучше.", "Четыре — это 'ниже среднего, но не сдаюсь'.", "Почти середина. Стакан наполовину пуст, да?"},
-	5:  {"Ровно посередине. Идеальный баланс хуйни.", "Пятёрка — это 'живой и ладно'.", "Пять. Ни туда ни сюда. Стабильность, ёпт.", "Золотая середина. Или серая. Зависит от настроя."},
-	6:  {"Шесть — это 'нормально'. Скучно, но стабильно.", "Выше среднего. Неплохо для утра.", "Шестёрка. Жить можно.", "Шесть — это когда вроде ок, но чего-то не хватает."},
-	7:  {"Семёрка! Кто-то сегодня выспался.", "Хороший показатель. Не расслабляйся.", "Семь из десяти. Твёрдый хорошист.", "Семёрка. Чувствуется уверенность. Мне нравится."},
-	8:  {"Восемь? Красава. Что случилось?", "Восьмёрка. Подозрительно хорошо.", "Восемь! Кто-то явно на подъёме.", "Хорошее настроение — редкий лут. Цени."},
-	9:  {"Девять?! Ты точно не врёшь?", "Девятка. Ну ты монстр.", "Девять. Почти идеал. Что помешало десятке?", "Девять из десяти. Завидую, честно."},
-	10: {"Десять?! Кто ты и что сделал с настоящим юзером?", "Максимум? Ну окей, сегодня ты бог.", "Десятка! Запомни этот день.", "Десять из десяти. Подозрительно. Но поверю."},
-}
+var moodReplies = models.MoodReplies
 
 func (b *Bot) handleMoodScore(c tele.Context, score int) error {
 	userID := c.Sender().ID
@@ -1179,7 +1106,7 @@ func (b *Bot) handleMoodScore(c tele.Context, score int) error {
 		b.checkAndSendAchievements(c, "mood_1")
 	}
 
-	return c.Edit(fmt.Sprintf("Утро. Как ты от 1 до 10?\n\n*%d* — %s", score, reply), tele.ModeMarkdown)
+	return c.Edit(fmt.Sprintf(models.FmtMoodScore, score, reply), tele.ModeMarkdown)
 }
 
 func (b *Bot) handleTruth(c tele.Context) error {
@@ -1194,18 +1121,18 @@ func (b *Bot) handleTruth(c tele.Context) error {
 	}
 
 	if lie == "" {
-		return c.Send("Сегодня я был честен. Или нет... \U0001F914", menu)
+		return c.Send(models.MsgTruthHonest, menu)
 	}
 
 	if revealed {
-		return c.Send("Ты уже знаешь. Я соврал: "+lie+"\n\nНа самом деле: "+truth, menu)
+		return c.Send(fmt.Sprintf(models.FmtTruthRevealed, lie, truth), menu)
 	}
 
 	if revealErr := b.store.RevealLie(userID, today); revealErr != nil {
 		log.Printf("[%d] reveal lie error: %v", userID, revealErr)
 	}
 
-	return c.Send("Я соврал: "+lie+"\n\nНа самом деле: "+truth, menu)
+	return c.Send(fmt.Sprintf(models.FmtTruthReveal, lie, truth), menu)
 }
 
 func (b *Bot) handleProfile(c tele.Context) error {
@@ -1219,7 +1146,7 @@ func (b *Bot) handleProfile(c tele.Context) error {
 	}
 
 	inline := &tele.ReplyMarkup{}
-	btn := inline.Data("\u270F\uFE0F Редактировать", "edit_profile")
+	btn := inline.Data(models.BtnEditProfileLabel, "edit_profile")
 	inline.Inline(inline.Row(btn))
 
 	return c.Send(features.FormatProfile(facts), menu, tele.ModeMarkdown, inline)
@@ -1229,7 +1156,7 @@ func (b *Bot) handleEditProfile(c tele.Context) error {
 	userID := c.Sender().ID
 	log.Printf("[%d] edit_profile callback", userID)
 	b.store.SetCounter(userID, "profile_editing", 1)
-	return c.Send("Напиши факт в формате: категория: значение\nПример: job: Go разработчик\n\nДоступные категории: name, age, city, job, hobbies, music, games, food, relationships, pets, goals, quirks", menu)
+	return c.Send(models.MsgProfileEditPrompt, menu)
 }
 
 func (b *Bot) handleMoodGraph(c tele.Context) error {
@@ -1239,11 +1166,11 @@ func (b *Bot) handleMoodGraph(c tele.Context) error {
 	entries, err := b.store.GetMoodHistory(userID, 7)
 	if err != nil {
 		log.Printf("[%d] mood history error: %v", userID, err)
-		return c.Send("Не получилось загрузить историю настроения.", menu)
+		return c.Send(models.MsgMoodError, menu)
 	}
 
 	if len(entries) == 0 {
-		return c.Send("Нет данных. Жди утреннего чекина.", menu)
+		return c.Send(models.MsgMoodNoData, menu)
 	}
 
 	graph := buildMoodASCII(entries)
@@ -1409,18 +1336,31 @@ func (b *Bot) handleFuture(c tele.Context) error {
 
 	return b.claudeReply(c, func() (string, error) {
 		return b.claude.AskWithModel(context.Background(), b.smartModel, prompt, "Напиши письмо из будущего")
-	}, "\U0001F4E8 Письмо из будущего:\n\n")
+	}, models.MsgFuturePrefix)
 }
 
 func (b *Bot) handleAnon(c tele.Context) error {
 	if !isGroupChat(c) {
-		return c.Send("Эта команда работает только в группах.")
+		return c.Send(models.MsgAnonGroupOnly)
 	}
 
 	text := c.Message().Payload
 	if text == "" {
-		return c.Send("Формат: /anon текст сообщения")
+		return c.Send(models.MsgAnonFormat)
 	}
+
+	// Length limit
+	if len(text) > 500 {
+		text = text[:500] + "..."
+	}
+
+	// Rate limit: 1 per 5 minutes per user per chat
+	anonKey := fmt.Sprintf("anon_%d_%d", c.Chat().ID, c.Sender().ID)
+	lastAnon, _ := b.store.GetCounter(c.Sender().ID, anonKey)
+	if lastAnon > 0 && time.Now().Unix()-int64(lastAnon) < 300 {
+		return c.Send(models.MsgAnonCooldown)
+	}
+	b.store.SetCounter(c.Sender().ID, anonKey, int(time.Now().Unix()))
 
 	// Delete original message
 	if err := b.tg.Delete(c.Message()); err != nil {
@@ -1428,9 +1368,9 @@ func (b *Bot) handleAnon(c tele.Context) error {
 	}
 
 	// 10% chance bot "accidentally" reveals author
-	prefix := "\U0001F3AD Аноним говорит:\n\n"
+	prefix := models.MsgAnonPrefix
 	if rand.Intn(10) == 0 {
-		prefix = fmt.Sprintf("\U0001F3AD Аноним (кажется это %s) говорит:\n\n", c.Sender().FirstName)
+		prefix = fmt.Sprintf(models.FmtAnonRevealed, c.Sender().FirstName)
 	}
 
 	return c.Send(prefix + text)
@@ -1574,12 +1514,12 @@ func (b *Bot) handleRemind(c tele.Context) error {
 	log.Printf("[%d] /remind: %s", userID, payload)
 
 	if payload == "" {
-		return c.Send("Формат: /remind 30m выпить воду\nПоддерживается: Nm (минуты), Nh (часы), Nd (дни)", menu)
+		return c.Send(models.MsgRemindFormat, menu)
 	}
 
 	matches := remindRe.FindStringSubmatch(payload)
 	if matches == nil {
-		return c.Send("Формат: /remind 30m выпить воду\nПоддерживается: Nm (минуты), Nh (часы), Nd (дни)", menu)
+		return c.Send(models.MsgRemindFormat, menu)
 	}
 
 	amount, _ := strconv.Atoi(matches[1])
@@ -1601,7 +1541,7 @@ func (b *Bot) handleRemind(c tele.Context) error {
 	}
 
 	if dur < time.Minute {
-		return c.Send("Минимум 1 минута. Не торопись.", menu)
+		return c.Send(models.MsgRemindMinTime, menu)
 	}
 
 	remindAt := time.Now().Add(dur)
@@ -1610,7 +1550,7 @@ func (b *Bot) handleRemind(c tele.Context) error {
 		return c.Send(features.RandomFallback(), menu)
 	}
 
-	return c.Send(fmt.Sprintf("⏰ Запомнил. Напомню через %s.", humanTime), menu)
+	return c.Send(fmt.Sprintf(models.FmtRemindSaved, humanTime), menu)
 }
 
 // --- Streak ---
@@ -1683,10 +1623,10 @@ func (b *Bot) handleStreak(c tele.Context) error {
 	record, _ := b.store.GetCounter(userID, "streak_record")
 
 	if streak == 0 {
-		return c.Send("У тебя пока нет серии. Напиши мне завтра тоже.", menu)
+		return c.Send(models.MsgStreakNone, menu)
 	}
 
-	return c.Send(fmt.Sprintf("🔥 Твоя серия: %d дней подряд\nРекорд: %d дней", streak, record), menu)
+	return c.Send(fmt.Sprintf(models.FmtStreak, streak, record), menu)
 }
 
 // --- Habit Tracker ---
@@ -1707,14 +1647,14 @@ func (b *Bot) handleHabit(c tele.Context) error {
 		name := strings.TrimPrefix(payload, "add ")
 		name = strings.TrimSpace(name)
 		if name == "" {
-			return c.Send("Формат: /habit add название привычки", menu)
+			return c.Send(models.MsgHabitAddFormat, menu)
 		}
 		_, err := b.store.AddHabit(userID, name)
 		if err != nil {
 			log.Printf("[%d] add habit error: %v", userID, err)
 			return c.Send(features.RandomFallback(), menu)
 		}
-		return c.Send("Привычка добавлена. Теперь отмазки не прокатят. /habit done N", menu)
+		return c.Send(models.MsgHabitAdded, menu)
 	}
 
 	if strings.HasPrefix(payload, "done ") {
@@ -1725,7 +1665,7 @@ func (b *Bot) handleHabit(c tele.Context) error {
 		return b.habitDelete(c, userID, payload)
 	}
 
-	return c.Send("Непонятно. Попробуй: /habit add, /habit list, /habit done N, /habit delete N", menu)
+	return c.Send(models.MsgHabitUnknown, menu)
 }
 
 func (b *Bot) habitList(c tele.Context, userID int64, today string) error {
@@ -1736,11 +1676,11 @@ func (b *Bot) habitList(c tele.Context, userID int64, today string) error {
 	}
 
 	if len(habits) == 0 {
-		return c.Send("У тебя нет привычек. Добавь: /habit add пить воду", menu)
+		return c.Send(models.MsgHabitNoHabits, menu)
 	}
 
 	var sb strings.Builder
-	sb.WriteString("📋 Твои привычки:\n\n")
+	sb.WriteString(models.MsgHabitListHeader)
 
 	for i, h := range habits {
 		done, _ := b.store.GetHabitLog(h.ID, today)
@@ -1759,7 +1699,7 @@ func (b *Bot) habitList(c tele.Context, userID int64, today string) error {
 		sb.WriteString(fmt.Sprintf("%d. %s %s%s\n", i+1, status, h.Name, streakStr))
 	}
 
-	sb.WriteString("\n/habit done N — отметить\n/habit add — добавить")
+	sb.WriteString(models.MsgHabitListFooter)
 	return c.Send(sb.String(), menu)
 }
 
@@ -1767,18 +1707,18 @@ func (b *Bot) habitDone(c tele.Context, userID int64, payload, today string) err
 	numStr := strings.TrimPrefix(payload, "done ")
 	num, err := strconv.Atoi(strings.TrimSpace(numStr))
 	if err != nil || num < 1 {
-		return c.Send("Формат: /habit done N (номер привычки из списка)", menu)
+		return c.Send(models.MsgHabitDoneFormat, menu)
 	}
 
 	habits, err := b.store.GetHabits(userID)
 	if err != nil || num > len(habits) {
-		return c.Send("Привычка не найдена. /habit list", menu)
+		return c.Send(models.MsgHabitNotFound, menu)
 	}
 
 	habit := habits[num-1]
 	already, _ := b.store.GetHabitLog(habit.ID, today)
 	if already {
-		return c.Send("Уже отмечено. Молодец, но два раза не считается.", menu)
+		return c.Send(models.MsgHabitAlreadyDone, menu)
 	}
 
 	if err := b.store.LogHabit(habit.ID, today); err != nil {
@@ -1788,16 +1728,9 @@ func (b *Bot) habitDone(c tele.Context, userID int64, payload, today string) err
 
 	streak, _ := b.store.GetHabitStreak(habit.ID)
 
-	replies := []string{
-		"Красава. Так держать.",
-		"Отмечено. Ты на шаг ближе к нормальному человеку.",
-		"Записал. Завтра тоже не забудь.",
-		"Ладно, засчитано. Но я слежу.",
-		"Готово. Трикстер гордится. Немного.",
-	}
-	reply := replies[rand.Intn(len(replies))]
+	reply := models.HabitDoneReplies[rand.Intn(len(models.HabitDoneReplies))]
 	if streak > 1 {
-		reply += fmt.Sprintf(" 🔥 Серия: %d дней.", streak)
+		reply += fmt.Sprintf(models.FmtHabitStreak, streak)
 	}
 
 	return c.Send(fmt.Sprintf("✅ %s — %s", habit.Name, reply), menu)
@@ -1807,12 +1740,12 @@ func (b *Bot) habitDelete(c tele.Context, userID int64, payload string) error {
 	numStr := strings.TrimPrefix(payload, "delete ")
 	num, err := strconv.Atoi(strings.TrimSpace(numStr))
 	if err != nil || num < 1 {
-		return c.Send("Формат: /habit delete N (номер привычки из списка)", menu)
+		return c.Send(models.MsgHabitDeleteFormat, menu)
 	}
 
 	habits, err := b.store.GetHabits(userID)
 	if err != nil || num > len(habits) {
-		return c.Send("Привычка не найдена. /habit list", menu)
+		return c.Send(models.MsgHabitNotFound, menu)
 	}
 
 	habit := habits[num-1]
@@ -1821,7 +1754,7 @@ func (b *Bot) habitDelete(c tele.Context, userID int64, payload string) error {
 		return c.Send(features.RandomFallback(), menu)
 	}
 
-	return c.Send(fmt.Sprintf("Удалено: %s. Одной проблемой меньше.", habit.Name), menu)
+	return c.Send(fmt.Sprintf(models.FmtHabitDeleted, habit.Name), menu)
 }
 
 // --- Habit inline button callbacks ---
@@ -1833,27 +1766,27 @@ func (b *Bot) handleHabitDoneCallback(c tele.Context, idx int) error {
 	today := time.Now().Format("2006-01-02")
 	habits, err := b.store.GetHabits(userID)
 	if err != nil || idx > len(habits) || idx < 1 {
-		return c.Respond(&tele.CallbackResponse{Text: "Привычка не найдена"})
+		return c.Respond(&tele.CallbackResponse{Text: models.MsgHabitCBNotFound})
 	}
 
 	habit := habits[idx-1]
 	already, _ := b.store.GetHabitLog(habit.ID, today)
 	if already {
-		return c.Respond(&tele.CallbackResponse{Text: "Уже отмечено!"})
+		return c.Respond(&tele.CallbackResponse{Text: models.MsgHabitCBAlready})
 	}
 
 	if err := b.store.LogHabit(habit.ID, today); err != nil {
 		log.Printf("[%d] habit callback log error: %v", userID, err)
-		return c.Respond(&tele.CallbackResponse{Text: "Ошибка"})
+		return c.Respond(&tele.CallbackResponse{Text: models.MsgHabitCBError})
 	}
 
 	streak, _ := b.store.GetHabitStreak(habit.ID)
 	streakStr := ""
 	if streak > 1 {
-		streakStr = fmt.Sprintf(" \U0001F525 Серия: %d", streak)
+		streakStr = fmt.Sprintf(models.FmtHabitDoneInline, streak)
 	}
 
-	return c.Edit(fmt.Sprintf("\u2705 %s — готово!%s", habit.Name, streakStr))
+	return c.Edit(fmt.Sprintf(models.FmtHabitDoneCallback, habit.Name, streakStr))
 }
 
 func (b *Bot) handleHabitSkipCallback(c tele.Context, idx int) error {
@@ -1862,11 +1795,11 @@ func (b *Bot) handleHabitSkipCallback(c tele.Context, idx int) error {
 
 	habits, err := b.store.GetHabits(userID)
 	if err != nil || idx > len(habits) || idx < 1 {
-		return c.Respond(&tele.CallbackResponse{Text: "Привычка не найдена"})
+		return c.Respond(&tele.CallbackResponse{Text: models.MsgHabitCBNotFound})
 	}
 
 	habit := habits[idx-1]
-	return c.Edit(fmt.Sprintf("\u274C %s — пропущено. Завтра не забудь.", habit.Name))
+	return c.Edit(fmt.Sprintf(models.FmtHabitSkipCallback, habit.Name))
 }
 
 // --- Sleep Tracker ---
@@ -1888,7 +1821,7 @@ func (b *Bot) groupInterject(c tele.Context, text string) {
 	chatID := c.Chat().ID
 
 	ctx := b.buildGroupContext(c)
-	prompt := fmt.Sprintf("Кто-то в группе написал: \"%s\"\n\nТы подслушал и хочешь вставить свои 5 копеек. Одно короткое предложение. Дерзко и по делу.", text)
+	prompt := fmt.Sprintf(models.FmtGroupInterjectPrompt, text)
 
 	systemPrompt := features.TricksterSystemPrompt + features.TimeOfDayMood() + features.DayOfWeekMood()
 	if ctx != "" {
@@ -1925,7 +1858,7 @@ func (b *Bot) buildGroupContext(c tele.Context) string {
 // handleTricksterIntro introduces the bot in a group chat.
 func (b *Bot) handleTricksterIntro(c tele.Context) error {
 	if !isGroupChat(c) {
-		return c.Send("Эта команда для групп. Добавь меня в группу!", menu)
+		return c.Send(models.MsgTricksterGroupOnly, menu)
 	}
 	intro := "Йо, народ! Я Трикстер — дерзкий друг-подъёбщик.\n\n" +
 		"Упоминайте меня @" + b.tg.Me.Username + " или отвечайте на мои сообщения.\n" +
@@ -1948,7 +1881,7 @@ func (b *Bot) handleTop(c tele.Context) error {
 	}
 
 	if len(users) == 0 {
-		return c.Send("Пока никого нет. Ты будешь первым.", b.replyOpts(c))
+		return c.Send(models.MsgTopEmpty, b.replyOpts(c))
 	}
 
 	// In group chat, filter to only group members
@@ -1984,7 +1917,7 @@ func (b *Bot) handleTop(c tele.Context) error {
 	}
 
 	var sb strings.Builder
-	sb.WriteString("🏆 Топ:\n\n")
+	sb.WriteString(models.MsgTopHeader)
 
 	limit := 10
 	if len(sortedUsers) < limit {
@@ -2021,7 +1954,7 @@ func (b *Bot) handleTop(c tele.Context) error {
 	}
 
 	if userRank > 0 {
-		sb.WriteString(fmt.Sprintf("\nТы: #%d из %d", userRank, len(sortedUsers)))
+		sb.WriteString(fmt.Sprintf(models.FmtTopSelf, userRank, len(sortedUsers)))
 	}
 
 	return c.Send(sb.String(), b.replyOpts(c))
@@ -2035,11 +1968,11 @@ func (b *Bot) handleRoastMe(c tele.Context) error {
 
 	streak, _ := b.store.GetCounter(userID, "streak_days")
 	if streak < 14 {
-		return c.Send("Эта команда разблокируется на 14-дневном streak. У тебя: "+strconv.Itoa(streak), b.replyOpts(c))
+		return c.Send(models.FmtRoastMeLocked+strconv.Itoa(streak), b.replyOpts(c))
 	}
 
 	return b.claudeReply(c, func() (string, error) {
-		return b.claude.Ask(context.Background(), "Ты бот-трикстер. Зароасти СЕБЯ. Жёстко, смешно, 2-3 предложения. На русском.", "Зароасть себя")
+		return b.claude.Ask(context.Background(), models.RoastMeSelfPrompt, "Зароасть себя")
 	}, "🤡 ")
 }
 
@@ -2049,7 +1982,7 @@ func (b *Bot) handleSerious(c tele.Context) error {
 
 	streak, _ := b.store.GetCounter(userID, "streak_days")
 	if streak < 30 {
-		return c.Send("Эта команда разблокируется на 30-дневном streak. У тебя: "+strconv.Itoa(streak), b.replyOpts(c))
+		return c.Send(models.FmtSeriousLocked+strconv.Itoa(streak), b.replyOpts(c))
 	}
 
 	// Check if already used today
@@ -2057,7 +1990,7 @@ func (b *Bot) handleSerious(c tele.Context) error {
 	key := "serious_" + today
 	used, _ := b.store.GetCounter(userID, key)
 	if used > 0 {
-		return c.Send("Серьёзный режим уже использован сегодня. Завтра будет ещё один шанс.", b.replyOpts(c))
+		return c.Send(models.MsgSeriousUsedToday, b.replyOpts(c))
 	}
 
 	// Mark as used
@@ -2067,12 +2000,12 @@ func (b *Bot) handleSerious(c tele.Context) error {
 
 	payload := c.Message().Payload
 	if payload == "" {
-		payload = "Скажи что-нибудь серьёзное и мудрое"
+		payload = models.MsgSeriousDefault
 	}
 
 	return b.claudeReply(c, func() (string, error) {
 		return b.claude.AskWithModel(context.Background(), b.smartModel,
-			"Ты мудрый, серьёзный собеседник. Без сарказма, без шуток. Отвечай вдумчиво, по-человечески, с эмпатией. На русском. 2-4 предложения.",
+			models.SeriousPrompt,
 			payload)
 	}, "🎩 ")
 }
@@ -2087,7 +2020,7 @@ func (b *Bot) handleReflectGood(c tele.Context) error {
 		log.Printf("[%d] set reflection_waiting error: %v", userID, err)
 	}
 
-	return c.Edit("\U0001F60A Что хорошего сегодня было? Напиши:")
+	return c.Edit(models.MsgReflectGoodPrompt)
 }
 
 func (b *Bot) handleReflectBad(c tele.Context) error {
@@ -2098,7 +2031,7 @@ func (b *Bot) handleReflectBad(c tele.Context) error {
 		log.Printf("[%d] set reflection_waiting error: %v", userID, err)
 	}
 
-	return c.Edit("\U0001F624 Что бесило сегодня? Выпусти пар:")
+	return c.Edit(models.MsgReflectBadPrompt)
 }
 
 func (b *Bot) handleReflectTomorrow(c tele.Context) error {
@@ -2109,7 +2042,7 @@ func (b *Bot) handleReflectTomorrow(c tele.Context) error {
 		log.Printf("[%d] set reflection_waiting error: %v", userID, err)
 	}
 
-	return c.Edit("🎯 Что хочешь сделать завтра? Одну вещь:")
+	return c.Edit(models.MsgReflectTomorrowPrompt)
 }
 
 // --- Weekly Challenge ---
@@ -2130,11 +2063,11 @@ func (b *Bot) handleChallenge(c tele.Context) error {
 	}
 
 	if challenge == "" {
-		return c.Send("Нет активного челленджа. Жди понедельник — получишь новый.", menu)
+		return c.Send(models.MsgChallengeNone, menu)
 	}
 
 	progress := strings.Repeat("✅", completedDays) + strings.Repeat("⬜", 7-completedDays)
-	msg := fmt.Sprintf("🏋️ Челлендж недели (с %s):\n\n%s\n\nПрогресс: %s (%d/7)\n\n/challenge done — отметить день", weekStart, challenge, progress, completedDays)
+	msg := fmt.Sprintf(models.FmtChallengeStatus, weekStart, challenge, progress, completedDays)
 	return c.Send(msg, menu)
 }
 
@@ -2146,11 +2079,11 @@ func (b *Bot) challengeDone(c tele.Context, userID int64) error {
 	}
 
 	if challenge == "" {
-		return c.Send("Нет активного челленджа.", menu)
+		return c.Send(models.MsgChallengeNoActive, menu)
 	}
 
 	if completedDays >= 7 {
-		return c.Send("Ты уже выполнил все 7 дней! Красава.", menu)
+		return c.Send(models.MsgChallengeDone, menu)
 	}
 
 	if err := b.store.IncrementChallengeDays(userID, weekStart); err != nil {
@@ -2162,16 +2095,10 @@ func (b *Bot) challengeDone(c tele.Context, userID int64) error {
 	progress := strings.Repeat("✅", completedDays) + strings.Repeat("⬜", 7-completedDays)
 
 	if completedDays == 7 {
-		return c.Send(fmt.Sprintf("🎉 Челлендж выполнен! Все 7 дней!\n\n%s\n\n%s", challenge, progress), menu)
+		return c.Send(fmt.Sprintf(models.FmtChallengeComplete, challenge, progress), menu)
 	}
 
-	replies := []string{
-		"Записал. Так держать.",
-		"Ещё один день в копилку.",
-		"Кабан одобряет.",
-		"Прогресс — это кайф.",
-	}
-	reply := replies[rand.Intn(len(replies))]
+	reply := models.ChallengeDoneReplies[rand.Intn(len(models.ChallengeDoneReplies))]
 	return c.Send(fmt.Sprintf("✅ %s\n\n%s (%d/7)", reply, progress, completedDays), menu)
 }
 
@@ -2211,7 +2138,7 @@ func (b *Bot) handleStory(c tele.Context) error {
 		inline.Data("2\uFE0F\u20E3", "story_2"),
 	))
 
-	return replyFn("📖 "+opening, inline)
+	return replyFn(models.MsgStoryPrefix+opening, inline)
 }
 
 func (b *Bot) handleStoryContinue(c tele.Context, choice string) error {
@@ -2263,7 +2190,7 @@ func (b *Bot) handleStoryContinue(c tele.Context, choice string) error {
 		if sErr := b.store.SetCounter(userID, "story_active", 0); sErr != nil {
 			log.Printf("[%d] reset story_active error: %v", userID, sErr)
 		}
-		return replyFn("📖 "+continuation+"\n\n🔚 Конец истории.", menu)
+		return replyFn(fmt.Sprintf(models.MsgStoryEnd, continuation), menu)
 	}
 
 	inline := &tele.ReplyMarkup{}
@@ -2272,7 +2199,7 @@ func (b *Bot) handleStoryContinue(c tele.Context, choice string) error {
 		inline.Data("2\uFE0F\u20E3", "story_2"),
 	))
 
-	return replyFn("📖 "+continuation, inline)
+	return replyFn(models.MsgStoryPrefix+continuation, inline)
 }
 
 func (b *Bot) handleStoryCallback(c tele.Context, choice string) error {
@@ -2281,7 +2208,7 @@ func (b *Bot) handleStoryCallback(c tele.Context, choice string) error {
 
 	storyActive, _ := b.store.GetCounter(userID, "story_active")
 	if storyActive == 0 {
-		return c.Respond(&tele.CallbackResponse{Text: "Нет активной истории. /story"})
+		return c.Respond(&tele.CallbackResponse{Text: models.MsgStoryNoActive})
 	}
 
 	// Save user choice as message

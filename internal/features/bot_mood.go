@@ -1,18 +1,22 @@
 package features
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
+)
 
 func BotMoodSuffix(messageCountToday int) string {
 	switch {
 	case messageCountToday == 0:
-		return "\n\nТебе скучно. Никто не пишет. Ты ворчишь от скуки и намекаешь что тебя забыли."
+		return models.BotMoodBored
 	case messageCountToday <= 5:
-		return "\n\nТебе интересно — наконец-то кто-то написал. Ты любопытный и вовлечённый."
+		return models.BotMoodCurious
 	case messageCountToday <= 15:
-		return "\n\nТы доволен — хороший день, нормальное общение. Ты в хорошем настроении."
+		return models.BotMoodHappy
 	case messageCountToday <= 30:
-		return fmt.Sprintf("\n\nТы на кураже — %d сообщений сегодня! Ты энергичный, дерзкий, шутишь больше обычного.", messageCountToday)
+		return fmt.Sprintf(models.FmtBotMoodHyper, messageCountToday)
 	default:
-		return fmt.Sprintf("\n\nТы перегружен — %d сообщений сегодня, это дохуя. Ты устал, отвечаешь коротко и ворчливо. Намекаешь что пора отдохнуть.", messageCountToday)
+		return fmt.Sprintf(models.FmtBotMoodTired, messageCountToday)
 	}
 }

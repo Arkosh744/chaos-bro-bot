@@ -40,3 +40,4 @@
 - [x] [100%] UX Fixes x12: P0 (offended non-blocking, randomizer prefix, alterego per-day, duel 60s timeout) + P1 (expanded pools, /help, mirror counter, FutureLetterPrompt, moodReplies) (2026-03-19)
 - [x] [100%] UX Improvements x10: mood drop detection, achievement progress, daily reward, habit inline buttons, mood trend, contextual suggestions, prediction context, /start returning users, typing indicator, SanitizeOutput mid-word fix (2026-03-19)
 - [x] [100%] UX Improvements x8: inline repeat buttons, roast from history, digest highlights, duel categories, group /top, sleep recommendations, profile editing, response cache (2026-03-19)
+- [x] [100%] Security Hardening x20: SEC-001..021 — command injection, auth, prompt injection, rate limits, Docker, logging, cache, voice limits (2026-03-20)

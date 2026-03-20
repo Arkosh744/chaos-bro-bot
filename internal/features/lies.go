@@ -8,6 +8,7 @@ import (
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/claude"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 )
 
 func todayDate() string {
@@ -59,7 +60,7 @@ func GetTodayLie(store *storage.Storage, userID int64) (lie, truth string, exist
 }
 
 func InjectLie(reply, lie string) string {
-	return reply + "\n\nКстати, " + lowercaseFirst(lie)
+	return reply + models.LieInjectionPrefix + lowercaseFirst(lie)
 }
 
 func lowercaseFirst(s string) string {
@@ -67,8 +68,8 @@ func lowercaseFirst(s string) string {
 		return s
 	}
 	runes := []rune(s)
-	if runes[0] >= 'А' && runes[0] <= 'Я' {
-		runes[0] = runes[0] + ('а' - 'А')
+	if runes[0] >= '\u0410' && runes[0] <= '\u042F' {
+		runes[0] = runes[0] + ('\u0430' - '\u0410')
 	} else if runes[0] >= 'A' && runes[0] <= 'Z' {
 		runes[0] = runes[0] + ('a' - 'A')
 	}

@@ -7,17 +7,10 @@ import (
 
 	"github.com/Arkosh744/chaos-bro-bot/internal/claude"
 	"github.com/Arkosh744/chaos-bro-bot/internal/storage"
+	"github.com/Arkosh744/chaos-bro-bot/pkg/models"
 )
 
-const PatternDetectPrompt = `Проанализируй summary и последние сообщения пользователя. Найди повторяющиеся паттерны.
-
-Если нашёл паттерн — выдай ОДНУ короткую фразу-подъёбку в стиле трикстера. Примеры:
-- "Ты третий день подряд жалуешься на работу. Может уже что-то с этим сделать?"
-- "Опять не спишь после полуночи. Ты вампир?"
-- "Заметил что ты каждый раз спрашиваешь что поесть. Шаурма. Всегда шаурма."
-
-Если паттернов нет — ответь ТОЛЬКО словом "НЕТ". Без объяснений.
-На русском. Коротко.`
+const PatternDetectPrompt = models.PatternDetectPrompt
 
 // DetectPatterns analyzes user summary and recent messages to find recurring behavioral patterns.
 // Returns a trickster-style quip if a pattern is found, empty string otherwise.
